@@ -33,6 +33,14 @@ return [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
+        'bot_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
+        'signing_secret' => env('SLACK_SIGNING_SECRET'),
+        'api_base' => 'https://slack.com/api',
+        'signature_tolerance' => 60 * 5,
+        'event_dedupe_ttl' => 60 * 10,
+        'max_upload_bytes' => 900 * 1024 * 1024,
+        'ytdlp_binary' => env('YTDLP_BINARY', 'yt-dlp'),
+        'ytdlp_timeout' => 120,
     ],
 
 ];

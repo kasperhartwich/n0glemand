@@ -1,3 +1,34 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project state
+
+This is a near-empty Laravel 13 skeleton (PHP 8.4). Only the default `User` model, the stock `/` welcome route, and example Pest tests exist — any new feature work is greenfield. When adding structure, mirror Laravel conventions rather than inventing new layouts.
+
+## Commands
+
+- `composer run dev` — runs `php artisan serve`, `queue:listen`, `pail` (logs), and `npm run dev` (Vite) concurrently via `concurrently`. Use this over starting processes individually. The site is also always available via Herd at `http://n0glemand.test` (no need to run a server for Herd access).
+- `composer run test` — clears config then runs `php artisan test` (Pest).
+- `php artisan test --compact` / `php artisan test --compact --filter=testName` — preferred for focused runs.
+- `npm run build` / `npm run dev` — Vite build or dev server for `resources/css/app.css` + `resources/js/app.js` (Tailwind v4 via `@tailwindcss/vite`).
+- `vendor/bin/pint --dirty --format agent` — **must run after any PHP edit** before finalizing (see Pint rules below). Do not use `--test`.
+- `php artisan pail` — tail application logs.
+
+## Testing setup
+
+- Pest v4 + `pestphp/pest-plugin-laravel`. `tests/Pest.php` binds `Tests\TestCase` to the `Feature` suite; `RefreshDatabase` is commented out — opt in per-file when a test hits the DB.
+- `phpunit.xml` forces tests onto `sqlite` `:memory:`, `array` cache/session, `sync` queue, and `null` broadcast — do not write tests that assume a real queue/broadcast driver.
+- Create tests with `php artisan make:test --pest {Name}` (add `--unit` for the Unit suite). Most new tests should be Feature tests.
+
+## Tooling in this repo
+
+- **Laravel Boost** MCP server is installed (`boost.json`) — use its tools (`search-docs`, `database-query`, `database-schema`, `get-absolute-url`, `browser-logs`, etc.) in preference to manual shell/file alternatives. See Boost rules below.
+- **Skills** enabled via `boost.json`: `laravel-best-practices`, `pest-testing`. Activate them proactively when working in those domains.
+- DB default per `.env` is SQLite at `database/database.sqlite`; `php artisan migrate` creates the file on first run.
+
+---
+
 <laravel-boost-guidelines>
 === foundation rules ===
 
