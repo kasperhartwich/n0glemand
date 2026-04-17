@@ -2,6 +2,7 @@
 
 namespace App\Services\Slack;
 
+use App\Jobs\Slack\JoinPublicChannel;
 use App\Services\Slack\Handlers\Contracts\MessageHandler;
 
 class SlackEventRouter
@@ -22,10 +23,18 @@ class SlackEventRouter
 
         $event = $payload['event'] ?? [];
 
-        if (($event['type'] ?? null) !== 'message') {
-            return;
-        }
+        match ($event['type'] ?? null) {
+            'message' => $this->routeMessage($event),
+            'channel_created' => $this->routeChannelCreated($event),
+            default => null,
+        };
+    }
 
+    /**
+     * @param  array<string, mixed>  $event
+     */
+    protected function routeMessage(array $event): void
+    {
         if (isset($event['bot_id']) || ($event['subtype'] ?? null) === 'bot_message') {
             return;
         }
@@ -43,5 +52,19 @@ class SlackEventRouter
                 $handler->handle($event, $channel, $threadTs, $userId);
             }
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $event
+     */
+    protected function routeChannelCreated(array $event): void
+    {
+        $channelId = (string) ($event['channel']['id'] ?? '');
+
+        if ($channelId === '') {
+            return;
+        }
+
+        JoinPublicChannel::dispatch($channelId);
     }
 }

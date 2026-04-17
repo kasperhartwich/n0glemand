@@ -84,6 +84,50 @@ class SlackClient
         return $completeJson;
     }
 
+    public function joinChannel(string $channelId): array
+    {
+        $json = Http::withToken($this->botToken)
+            ->acceptJson()
+            ->asJson()
+            ->timeout(10)
+            ->post("{$this->apiBase}/conversations.join", ['channel' => $channelId])
+            ->throw()
+            ->json();
+
+        if (($json['ok'] ?? false) !== true && ($json['error'] ?? null) !== 'already_in_channel') {
+            $this->assertOk($json, 'conversations.join');
+        }
+
+        return $json;
+    }
+
+    /**
+     * @return array{channels: array<int, array<string, mixed>>, next_cursor: string}
+     */
+    public function listPublicChannels(?string $cursor = null, int $limit = 200): array
+    {
+        $query = array_filter([
+            'types' => 'public_channel',
+            'exclude_archived' => 'true',
+            'limit' => $limit,
+            'cursor' => $cursor,
+        ], fn ($value) => $value !== null && $value !== '');
+
+        $json = Http::withToken($this->botToken)
+            ->acceptJson()
+            ->timeout(15)
+            ->get("{$this->apiBase}/conversations.list", $query)
+            ->throw()
+            ->json();
+
+        $this->assertOk($json, 'conversations.list');
+
+        return [
+            'channels' => $json['channels'] ?? [],
+            'next_cursor' => $json['response_metadata']['next_cursor'] ?? '',
+        ];
+    }
+
     public function verifyAuth(): array
     {
         $json = Http::withToken($this->botToken)

@@ -1,0 +1,28 @@
+display_information:
+  name: n0glemand
+  description: n0glemand
+  background_color: "#0a0a0a"
+features:
+  bot_user:
+    display_name: n0glemand
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - chat:write
+      - files:write
+      - channels:history
+      - groups:history
+      - channels:join
+      - channels:read
+      - app_mentions:read
+settings:
+  event_subscriptions:
+    request_url: https://REPLACE-ME.example.com/slack/events
+    bot_events:
+      - message.channels
+      - message.groups
+      - channel_created
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

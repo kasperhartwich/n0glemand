@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\Slack\JoinPublicChannel;
 use App\Jobs\Slack\PostSonglinkToThread;
 use App\Jobs\Slack\UploadInstagramMediaToThread;
 use Illuminate\Support\Facades\Cache;
@@ -127,6 +128,21 @@ it('dispatches both jobs for a message with both link types', function () {
 
     Queue::assertPushed(UploadInstagramMediaToThread::class, 1);
     Queue::assertPushed(PostSonglinkToThread::class, 1);
+});
+
+it('dispatches a join job when a channel_created event arrives', function () {
+    Queue::fake();
+
+    postSlackEvent([
+        'type' => 'event_callback',
+        'event_id' => 'Ev-created',
+        'event' => [
+            'type' => 'channel_created',
+            'channel' => ['id' => 'C-NEW', 'name' => 'announcements'],
+        ],
+    ])->assertNoContent();
+
+    Queue::assertPushed(JoinPublicChannel::class, fn ($job) => $job->channelId === 'C-NEW');
 });
 
 it('uses thread_ts when the message is inside a thread', function () {
