@@ -68,7 +68,7 @@ it('returns the help text when called with no text', function () {
 
     expect($response->json('text'))
         ->toContain('/n0glemand logs')
-        ->toContain('!n0g ping');
+        ->toContain('Send `ping`');
 });
 
 it('returns the help text when called with `help`', function () {
@@ -79,7 +79,7 @@ it('returns the help text when called with `help`', function () {
 
     expect($response->json('text'))
         ->toContain('/n0glemand logs')
-        ->toContain('!n0g ping');
+        ->toContain('Send `ping`');
 });
 
 it('returns an ephemeral message with the log tail', function () {

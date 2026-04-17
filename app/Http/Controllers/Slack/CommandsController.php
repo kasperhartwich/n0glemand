@@ -56,7 +56,7 @@ class CommandsController extends Controller
             '• `/n0glemand help` — show this message',
             '',
             '*In-channel (no slash command):*',
-            '• `!n0g ping` — quick liveness check',
+            '• Send `ping` — quick liveness check (bot replies `pong`)',
             '• Paste an Instagram reel/post URL — the bot downloads the video and posts it in-thread',
             '• Paste a Spotify URL — the bot replies in-thread with a song.link URL',
         ];

@@ -2,8 +2,8 @@
 
 namespace App\Providers;
 
-use App\Services\Slack\Handlers\BangCommandHandler;
 use App\Services\Slack\Handlers\InstagramLinkHandler;
+use App\Services\Slack\Handlers\PingHandler;
 use App\Services\Slack\Handlers\SpotifyLinkHandler;
 use App\Services\Slack\SlackClient;
 use App\Services\Slack\SlackEventRouter;
@@ -20,7 +20,7 @@ class SlackServiceProvider extends ServiceProvider
         ));
 
         $this->app->tag([
-            BangCommandHandler::class,
+            PingHandler::class,
             InstagramLinkHandler::class,
             SpotifyLinkHandler::class,
         ], 'slack.handlers');

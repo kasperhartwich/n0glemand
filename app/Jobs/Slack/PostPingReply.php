@@ -8,7 +8,7 @@ use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
-class PostBangCommandReply implements ShouldQueue
+class PostPingReply implements ShouldQueue
 {
     use Queueable;
 
@@ -29,7 +29,7 @@ class PostBangCommandReply implements ShouldQueue
 
     public function failed(Throwable $e): void
     {
-        Log::error('slack.bang.job_failed', [
+        Log::error('slack.ping.job_failed', [
             'channel' => $this->channel,
             'exception' => $e->getMessage(),
         ]);
