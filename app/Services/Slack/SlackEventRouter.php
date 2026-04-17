@@ -4,6 +4,7 @@ namespace App\Services\Slack;
 
 use App\Jobs\Slack\JoinPublicChannel;
 use App\Services\Slack\Handlers\Contracts\MessageHandler;
+use Illuminate\Support\Facades\Log;
 
 class SlackEventRouter
 {
@@ -36,6 +37,11 @@ class SlackEventRouter
     protected function routeMessage(array $event): void
     {
         if (isset($event['bot_id']) || ($event['subtype'] ?? null) === 'bot_message') {
+            Log::info('slack.router.skipped_bot_message', [
+                'subtype' => $event['subtype'] ?? null,
+                'bot_id' => $event['bot_id'] ?? null,
+            ]);
+
             return;
         }
 
@@ -44,14 +50,27 @@ class SlackEventRouter
         $userId = (string) ($event['user'] ?? '');
 
         if ($channel === '' || $threadTs === '') {
+            Log::info('slack.router.missing_channel_or_ts', [
+                'channel' => $channel,
+                'ts' => $threadTs,
+            ]);
+
             return;
         }
 
+        $matched = [];
+
         foreach ($this->handlers as $handler) {
             if ($handler->matches($event)) {
+                $matched[] = $handler::class;
                 $handler->handle($event, $channel, $threadTs, $userId);
             }
         }
+
+        Log::info('slack.router.dispatched', [
+            'channel' => $channel,
+            'matched' => $matched,
+        ]);
     }
 
     /**
