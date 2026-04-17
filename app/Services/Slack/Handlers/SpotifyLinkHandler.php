@@ -8,7 +8,7 @@ use Illuminate\Support\Collection;
 
 class SpotifyLinkHandler implements MessageHandler
 {
-    public const URL_REGEX = '~(?:https?://open\.spotify\.com/(?:intl-[a-z]{2}/)?(track|album|playlist|episode|artist|show)/([A-Za-z0-9]+)|spotify:(track|album|playlist|episode|artist|show):([A-Za-z0-9]+))~i';
+    public const URL_REGEX = '~(?:https?://open\.spotify\.com/(?:intl-[a-z]{2}/)?(track|album|playlist|episode|show)/([A-Za-z0-9]+)|spotify:(track|album|playlist|episode|show):([A-Za-z0-9]+))~i';
 
     /**
      * @param  array<string, mixed>  $event

@@ -36,9 +36,11 @@ class SlackEventRouter
      */
     protected function routeMessage(array $event): void
     {
-        if (isset($event['bot_id']) || ($event['subtype'] ?? null) === 'bot_message') {
-            Log::info('slack.router.skipped_bot_message', [
-                'subtype' => $event['subtype'] ?? null,
+        $subtype = $event['subtype'] ?? null;
+
+        if (isset($event['bot_id']) || in_array($subtype, ['bot_message', 'message_changed', 'message_deleted', 'channel_join', 'channel_leave'], true)) {
+            Log::info('slack.router.skipped_subtype', [
+                'subtype' => $subtype,
                 'bot_id' => $event['bot_id'] ?? null,
             ]);
 

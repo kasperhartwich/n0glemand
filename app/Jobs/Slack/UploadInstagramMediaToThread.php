@@ -40,18 +40,28 @@ class UploadInstagramMediaToThread implements ShouldQueue
         File::makeDirectory($tmpDir, 0755, true, true);
 
         try {
+            $command = [
+                (string) config('services.slack.ytdlp_binary', 'yt-dlp'),
+                '--no-playlist',
+                '--no-warnings',
+                '--quiet',
+                '--max-filesize', '900M',
+                '--output', '%(id)s.%(ext)s',
+                '--restrict-filenames',
+            ];
+
+            $cookies = (string) config('services.slack.ytdlp_cookies', '');
+
+            if ($cookies !== '' && is_file($cookies)) {
+                $command[] = '--cookies';
+                $command[] = $cookies;
+            }
+
+            $command[] = $this->instagramUrl;
+
             $result = Process::path($tmpDir)
                 ->timeout((int) config('services.slack.ytdlp_timeout', 120))
-                ->run([
-                    (string) config('services.slack.ytdlp_binary', 'yt-dlp'),
-                    '--no-playlist',
-                    '--no-warnings',
-                    '--quiet',
-                    '--max-filesize', '900M',
-                    '--output', '%(id)s.%(ext)s',
-                    '--restrict-filenames',
-                    $this->instagramUrl,
-                ]);
+                ->run($command);
 
             if ($result->failed()) {
                 Log::warning('slack.ig.ytdlp_failed', [

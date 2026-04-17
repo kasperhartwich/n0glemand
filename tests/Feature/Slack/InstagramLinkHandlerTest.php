@@ -35,6 +35,8 @@ it('detects instagram URLs across supported shapes', function (string $text, boo
     'post' => ['https://instagram.com/p/Cabc123_-/', true],
     'tv' => ['https://www.instagram.com/tv/Tabc456/', true],
     'slack-wrapped' => ['<https://www.instagram.com/reel/ABC/|Instagram>', true],
+    'reel with ?igsh= share param' => ['https://www.instagram.com/reel/DXJYt_4DW-y/?igsh=c3NlNTI3OGgycnhi', true],
+    'slack-wrapped with ?igsh= share param' => ['<https://www.instagram.com/reel/DXJYt_4DW-y/?igsh=c3NlNTI3OGgycnhi>', true],
     'non-ig' => ['https://example.com/reel/abc', false],
     'ig stories (unsupported)' => ['https://instagram.com/stories/someone/1234', false],
     'no URL' => ['hi', false],

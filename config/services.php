@@ -41,6 +41,7 @@ return [
         'max_upload_bytes' => 900 * 1024 * 1024,
         'ytdlp_binary' => env('YTDLP_BINARY', 'yt-dlp'),
         'ytdlp_timeout' => 120,
+        'ytdlp_cookies' => env('YTDLP_COOKIES_PATH'),
     ],
 
 ];
