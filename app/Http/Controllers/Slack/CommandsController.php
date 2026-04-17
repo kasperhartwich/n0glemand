@@ -5,12 +5,20 @@ namespace App\Http\Controllers\Slack;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class CommandsController extends Controller
 {
     public function __invoke(Request $request): JsonResponse
     {
         $command = (string) $request->input('command', '');
+
+        Log::info('slack.command.received', [
+            'command' => $command,
+            'text' => $request->input('text'),
+            'user_id' => $request->input('user_id'),
+            'channel_id' => $request->input('channel_id'),
+        ]);
 
         if ($command !== '/n0glemand') {
             return $this->ephemeral("Unknown command `{$command}`.");

@@ -1,10 +1,13 @@
 <?php
 
+use Illuminate\Support\Facades\Log;
 use Illuminate\Testing\TestResponse;
 
 beforeEach(function () {
     config()->set('services.slack.signing_secret', 'test-secret');
     config()->set('services.slack.signature_tolerance', 300);
+
+    Log::spy();
 
     $path = storage_path('logs/laravel.log');
     @mkdir(dirname($path), 0755, true);
