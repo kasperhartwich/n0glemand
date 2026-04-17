@@ -7,10 +7,10 @@ features:
     display_name: n0glemand
     always_online: true
   slash_commands:
-    - command: /n0g-logs
+    - command: /n0glemand
       url: https://REPLACE-ME.example.com/slack/commands
-      description: Show the latest Laravel logs
-      usage_hint: "[number of lines, default 50, max 200]"
+      description: Interact with n0glemand (logs, help, ...)
+      usage_hint: "logs [N] | help"
       should_escape: false
 oauth_config:
   scopes:

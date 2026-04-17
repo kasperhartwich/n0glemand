@@ -11,17 +11,54 @@ class CommandsController extends Controller
     public function __invoke(Request $request): JsonResponse
     {
         $command = (string) $request->input('command', '');
-        $text = trim((string) $request->input('text', ''));
 
-        return match ($command) {
-            '/n0g-logs' => $this->logs($text),
-            default => $this->ephemeral("Unknown command `{$command}`."),
+        if ($command !== '/n0glemand') {
+            return $this->ephemeral("Unknown command `{$command}`.");
+        }
+
+        $text = trim((string) $request->input('text', ''));
+        [$subcommand, $args] = $this->splitText($text);
+
+        return match ($subcommand) {
+            '', 'help' => $this->help(),
+            'logs' => $this->logs($args),
+            default => $this->ephemeral("Unknown subcommand `{$subcommand}`. Try `/n0glemand help`."),
         };
     }
 
-    protected function logs(string $text): JsonResponse
+    /**
+     * @return array{0: string, 1: string}
+     */
+    protected function splitText(string $text): array
     {
-        $requested = (int) ($text !== '' ? $text : 50);
+        if ($text === '') {
+            return ['', ''];
+        }
+
+        $parts = preg_split('/\s+/', $text, 2);
+
+        return [strtolower($parts[0] ?? ''), $parts[1] ?? ''];
+    }
+
+    protected function help(): JsonResponse
+    {
+        $lines = [
+            '*n0glemand commands*',
+            '• `/n0glemand logs [N]` — tail the last N lines (default 50, max 200) of `laravel.log`',
+            '• `/n0glemand help` — show this message',
+            '',
+            '*In-channel (no slash command):*',
+            '• `!n0g ping` — quick liveness check',
+            '• Paste an Instagram reel/post URL — the bot downloads the video and posts it in-thread',
+            '• Paste a Spotify URL — the bot replies in-thread with a song.link URL',
+        ];
+
+        return $this->ephemeral(implode("\n", $lines));
+    }
+
+    protected function logs(string $args): JsonResponse
+    {
+        $requested = (int) ($args !== '' ? $args : 50);
         $lines = max(1, min($requested, 200));
 
         $path = storage_path('logs/laravel.log');
@@ -36,7 +73,6 @@ class CommandsController extends Controller
             return $this->ephemeral('Log file is empty.');
         }
 
-        // Slack hard-caps messages around 4000 chars; leave headroom for code fences.
         $maxPayload = 3900;
         $truncated = false;
 
