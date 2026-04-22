@@ -96,3 +96,23 @@ it('silently gives up on songlink 4xx', function () {
         fn (Request $request) => str_contains($request->url(), 'slack.test/api/chat.postMessage'),
     );
 });
+
+it('silently gives up on songlink 405 (the real response for unsupported URL types)', function () {
+    // Matches what song.link returns in production for an artist URL — see
+    // production log `slack.songlink.http_failed {status:405}`.
+    Http::fake([
+        'api.song.link/*' => Http::response('Method Not Allowed', 405),
+    ]);
+
+    $job = new PostSonglinkToThread(
+        spotifyUrl: 'https://open.spotify.com/artist/293vC3Y0NqwjW2g3ioBYN0',
+        channel: 'C42',
+        threadTs: '1700000000.000100',
+    );
+
+    $job->handle(app(SlackClient::class));
+
+    Http::assertNotSent(
+        fn (Request $request) => str_contains($request->url(), 'slack.test/api/chat.postMessage'),
+    );
+});
