@@ -2,7 +2,9 @@
 
 namespace App\Jobs\Slack;
 
+use App\Services\Instagram\InstagramCookieJar;
 use App\Services\Slack\SlackClient;
+use Illuminate\Contracts\Process\ProcessResult;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\File;
@@ -33,41 +35,21 @@ class UploadInstagramMediaToThread implements ShouldQueue
         return [10, 60];
     }
 
-    public function handle(SlackClient $slack): void
+    public function handle(SlackClient $slack, InstagramCookieJar $jar): void
     {
         $tmpDir = storage_path('app/slack-ig/'.(string) Str::uuid());
 
         File::makeDirectory($tmpDir, 0755, true, true);
 
         try {
-            $command = [
-                (string) config('services.slack.ytdlp_binary', 'yt-dlp'),
-                '--no-playlist',
-                '--no-warnings',
-                '--quiet',
-                '--max-filesize', '900M',
-                '--output', '%(id)s.%(ext)s',
-                '--restrict-filenames',
-            ];
+            [$result, $pickedUsername] = $this->runYtDlpWithRotation($jar, $tmpDir);
 
-            $cookies = (string) config('services.slack.ytdlp_cookies', '');
-
-            if ($cookies !== '' && is_file($cookies)) {
-                $command[] = '--cookies';
-                $command[] = $cookies;
-            }
-
-            $command[] = $this->instagramUrl;
-
-            $result = Process::path($tmpDir)
-                ->timeout((int) config('services.slack.ytdlp_timeout', 120))
-                ->run($command);
-
-            if ($result->failed()) {
+            if ($result === null || $result->failed()) {
                 Log::warning('slack.ig.ytdlp_failed', [
                     'url' => $this->instagramUrl,
-                    'exit_code' => $result->exitCode(),
-                    'stderr' => $result->errorOutput(),
+                    'exit_code' => $result?->exitCode(),
+                    'stderr' => $result?->errorOutput(),
+                    'ig_username' => $pickedUsername,
                 ]);
 
                 return;
@@ -103,6 +85,71 @@ class UploadInstagramMediaToThread implements ShouldQueue
         } finally {
             File::deleteDirectory($tmpDir);
         }
+    }
+
+    /**
+     * @return array{0: ProcessResult|null, 1: string|null}
+     */
+    private function runYtDlpWithRotation(InstagramCookieJar $jar, string $tmpDir): array
+    {
+        $excluded = null;
+        $lastResult = null;
+        $lastUsername = null;
+
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            $pick = $jar->pickCookies($excluded);
+            $cookiesPath = $pick['path'] ?? (string) config('services.slack.ytdlp_cookies', '');
+            $username = $pick['username'] ?? null;
+
+            $result = $this->runYtDlp($cookiesPath, $tmpDir);
+
+            $lastResult = $result;
+            $lastUsername = $username;
+
+            if ($result->successful()) {
+                return [$result, $username];
+            }
+
+            if ($username !== null && $this->looksLikeAuthFailure($result->errorOutput())) {
+                $jar->markInvalid($username, 'yt-dlp: '.trim(Str::limit($result->errorOutput(), 200)));
+                $excluded = $username;
+
+                continue;
+            }
+
+            break;
+        }
+
+        return [$lastResult, $lastUsername];
+    }
+
+    private function runYtDlp(string $cookiesPath, string $tmpDir): ProcessResult
+    {
+        $command = [
+            (string) config('services.slack.ytdlp_binary', 'yt-dlp'),
+            '--no-playlist',
+            '--no-warnings',
+            '--quiet',
+            '--max-filesize', '900M',
+            '--output', '%(id)s.%(ext)s',
+            '--restrict-filenames',
+        ];
+
+        if ($cookiesPath !== '' && is_file($cookiesPath)) {
+            $command[] = '--cookies';
+            $command[] = $cookiesPath;
+        }
+
+        $command[] = $this->instagramUrl;
+
+        return Process::path($tmpDir)
+            ->timeout((int) config('services.slack.ytdlp_timeout', 120))
+            ->run($command);
+    }
+
+    private function looksLikeAuthFailure(string $stderr): bool
+    {
+        return (bool) preg_match('/login[\s_-]?required|rate[\s_-]?limit|Requested content is not available|Restricted Video|challenge/i', $stderr);
     }
 
     public function failed(Throwable $e): void
