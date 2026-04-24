@@ -45,7 +45,8 @@ return [
     ],
 
     'instagram' => [
-        'accounts' => json_decode((string) env('INSTAGRAM_ACCOUNTS', '[]'), true) ?: [],
+        'username' => env('INSTAGRAM_USERNAME'),
+        'password' => env('INSTAGRAM_PASSWORD'),
         'cookies_ttl' => (int) env('INSTAGRAM_COOKIES_TTL', 60 * 60 * 24 * 7),
         'login_cooldown' => (int) env('INSTAGRAM_LOGIN_COOLDOWN', 60 * 5),
     ],

@@ -18,7 +18,8 @@ beforeEach(function () {
     config()->set('services.slack.max_upload_bytes', 900 * 1024 * 1024);
     config()->set('services.slack.ytdlp_binary', 'yt-dlp');
     config()->set('services.slack.ytdlp_timeout', 120);
-    config()->set('services.instagram.accounts', []);
+    config()->set('services.instagram.username', null);
+    config()->set('services.instagram.password', null);
 
     Cache::flush();
     File::deleteDirectory(storage_path('app/slack-ig'));
@@ -135,12 +136,13 @@ it('passes the jar-supplied cookies file to yt-dlp and leaves it in place', func
     File::ensureDirectoryExists($tmpDir);
     File::put($tmpDir.'/ABC.mp4', str_repeat('x', 128));
 
-    $cookiesDir = storage_path('app/private/instagram-cookies');
-    File::ensureDirectoryExists($cookiesDir);
-    $cookiesPath = $cookiesDir.'/acct1.txt';
+    $jar = app(InstagramCookieJar::class);
+    $cookiesPath = $jar->cookiesPath();
+    File::ensureDirectoryExists(dirname($cookiesPath));
     File::put($cookiesPath, "# Netscape HTTP Cookie File\n.instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\tseeded\n");
 
-    config()->set('services.instagram.accounts', [['username' => 'acct1', 'password' => 'pw']]);
+    config()->set('services.instagram.username', 'acct1');
+    config()->set('services.instagram.password', 'pw');
     config()->set('services.slack.ytdlp_cookies', '/should/not/be/used.txt');
 
     Process::fake();
@@ -156,7 +158,7 @@ it('passes the jar-supplied cookies file to yt-dlp and leaves it in place', func
         instagramUrl: 'https://www.instagram.com/reel/ABC/',
         channel: 'C42',
         threadTs: '1700000000.000100',
-    ))->handle(app(SlackClient::class), app(InstagramCookieJar::class));
+    ))->handle(app(SlackClient::class), $jar);
 
     Process::assertRan(function ($process) use ($cookiesPath) {
         $idx = array_search('--cookies', $process->command, true);
@@ -167,27 +169,53 @@ it('passes the jar-supplied cookies file to yt-dlp and leaves it in place', func
     expect(File::exists($cookiesPath))->toBeTrue();
 });
 
-it('invalidates the jar cookies and skips them on retry when yt-dlp reports login_required', function () {
+it('deletes the cached cookies and re-logs in on retry when yt-dlp reports login_required', function () {
     Str::createUuidsUsing(fn () => 'fixed-uuid-stale');
+    $tmpDir = storage_path('app/slack-ig/fixed-uuid-stale');
 
-    $cookiesDir = storage_path('app/private/instagram-cookies');
-    File::ensureDirectoryExists($cookiesDir);
-    $cookiesPath = $cookiesDir.'/acct1.txt';
+    $jar = app(InstagramCookieJar::class);
+    $cookiesPath = $jar->cookiesPath();
+    File::ensureDirectoryExists(dirname($cookiesPath));
     File::put($cookiesPath, "# Netscape HTTP Cookie File\n.instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\tstale\n");
 
-    config()->set('services.instagram.accounts', [['username' => 'acct1', 'password' => 'pw']]);
+    config()->set('services.instagram.username', 'acct1');
+    config()->set('services.instagram.password', 'pw');
 
-    Process::fake([
-        '*' => Process::result(output: '', errorOutput: 'ERROR: [Instagram] login_required: ...', exitCode: 1),
+    $attempts = 0;
+    Process::fake(function () use (&$attempts, $tmpDir) {
+        $attempts++;
+
+        if ($attempts === 1) {
+            return Process::result(output: '', errorOutput: 'ERROR: [Instagram] login_required: ...', exitCode: 1);
+        }
+
+        File::ensureDirectoryExists($tmpDir);
+        File::put($tmpDir.'/stale.mp4', str_repeat('x', 128));
+
+        return Process::result(output: '', exitCode: 0);
+    });
+    Http::fake([
+        'https://www.instagram.com/accounts/login/' => Http::response('', 200, [
+            'Set-Cookie' => ['csrftoken=tok; Path=/; Domain=.instagram.com'],
+        ]),
+        'https://www.instagram.com/accounts/login/ajax/' => Http::response(
+            ['authenticated' => true, 'user' => true, 'status' => 'ok'],
+            200,
+            ['Set-Cookie' => ['sessionid=FRESH; Path=/; Domain=.instagram.com; Secure']],
+        ),
+        'slack.test/api/files.getUploadURLExternal*' => Http::response([
+            'ok' => true, 'upload_url' => 'https://files.test/upload/retry', 'file_id' => 'FR',
+        ]),
+        'https://files.test/upload/retry' => Http::response('OK'),
+        'slack.test/api/files.completeUploadExternal' => Http::response(['ok' => true]),
     ]);
-    Http::fake();
 
     (new UploadInstagramMediaToThread(
         instagramUrl: 'https://www.instagram.com/reel/stale/',
         channel: 'C42',
         threadTs: '1700000000.000100',
-    ))->handle(app(SlackClient::class), app(InstagramCookieJar::class));
+    ))->handle(app(SlackClient::class), $jar);
 
-    expect(File::exists($cookiesPath))->toBeFalse();
-    Http::assertNothingSent();
+    expect($attempts)->toBe(2);
+    Http::assertSent(fn (Request $req) => $req->url() === 'https://www.instagram.com/accounts/login/ajax/');
 });

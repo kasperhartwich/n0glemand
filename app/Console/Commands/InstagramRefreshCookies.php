@@ -7,36 +7,28 @@ use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 
-#[Signature('instagram:refresh {--username=* : Only refresh cookies for these usernames}')]
-#[Description('Force a fresh Instagram login for every configured account and write cookies to disk.')]
+#[Signature('instagram:refresh')]
+#[Description('Force a fresh Instagram login and write cookies to disk for yt-dlp.')]
 class InstagramRefreshCookies extends Command
 {
     public function handle(InstagramCookieJar $jar): int
     {
-        $only = array_filter((array) $this->option('username'));
-        $accounts = $jar->accounts();
+        $credentials = $jar->credentials();
 
-        if ($accounts === []) {
-            $this->warn('No Instagram accounts configured. Set INSTAGRAM_ACCOUNTS in .env.');
+        if ($credentials === null) {
+            $this->warn('INSTAGRAM_USERNAME and INSTAGRAM_PASSWORD are not set in .env.');
 
             return self::SUCCESS;
         }
 
-        $failures = 0;
+        if ($jar->refresh()) {
+            $this->info(sprintf('ok     %s', $credentials['username']));
 
-        foreach ($accounts as $account) {
-            if ($only !== [] && ! in_array($account['username'], $only, true)) {
-                continue;
-            }
-
-            if ($jar->refresh($account['username'], $account['password'])) {
-                $this->info(sprintf('ok     %s', $account['username']));
-            } else {
-                $failures++;
-                $this->error(sprintf('failed %s', $account['username']));
-            }
+            return self::SUCCESS;
         }
 
-        return $failures === 0 ? self::SUCCESS : self::FAILURE;
+        $this->error(sprintf('failed %s', $credentials['username']));
+
+        return self::FAILURE;
     }
 }

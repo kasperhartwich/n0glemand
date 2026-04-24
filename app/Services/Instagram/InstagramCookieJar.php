@@ -8,113 +8,71 @@ use Illuminate\Support\Facades\Log;
 
 class InstagramCookieJar
 {
+    private const COOLDOWN_CACHE_KEY = 'ig:login:cooldown';
+
     public function __construct(
         private InstagramLoginClient $client,
     ) {}
 
-    /**
-     * @return array{username: string, path: string}|null
-     */
-    public function pickCookies(?string $excludeUsername = null): ?array
+    public function pickCookiesPath(): ?string
     {
-        $accounts = $this->accounts();
+        $credentials = $this->credentials();
 
-        if ($accounts === []) {
+        if ($credentials === null) {
             return null;
         }
 
+        $path = $this->cookiesPath();
         $ttl = (int) config('services.instagram.cookies_ttl', 60 * 60 * 24 * 7);
-        $now = time();
 
-        $fresh = [];
-        $stale = [];
+        if ($this->cacheHit($path, $ttl)) {
+            @touch($path);
 
-        foreach ($accounts as $account) {
-            $username = (string) ($account['username'] ?? '');
-
-            if ($username === '' || $username === $excludeUsername) {
-                continue;
-            }
-
-            if (Cache::has($this->cooldownKey($username))) {
-                continue;
-            }
-
-            $path = $this->pathFor($username);
-            $mtime = is_file($path) ? (int) filemtime($path) : 0;
-            $size = is_file($path) ? (int) filesize($path) : 0;
-
-            $candidate = [
-                'username' => $username,
-                'password' => (string) ($account['password'] ?? ''),
-                'path' => $path,
-                'mtime' => $mtime,
-            ];
-
-            if ($mtime > 0 && $size > 0 && ($now - $mtime) <= $ttl) {
-                $fresh[] = $candidate;
-            } else {
-                $stale[] = $candidate;
-            }
+            return $path;
         }
 
-        if ($fresh !== []) {
-            usort($fresh, fn (array $a, array $b) => $a['mtime'] <=> $b['mtime']);
-            $pick = $fresh[0];
-
-            @touch($pick['path']);
-
-            return ['username' => $pick['username'], 'path' => $pick['path']];
+        if (Cache::has(self::COOLDOWN_CACHE_KEY)) {
+            return null;
         }
 
-        foreach ($stale as $candidate) {
-            if ($this->refresh($candidate['username'], $candidate['password'])) {
-                return ['username' => $candidate['username'], 'path' => $candidate['path']];
-            }
-        }
-
-        return null;
+        return $this->refresh() ? $path : null;
     }
 
-    public function markInvalid(string $username, string $reason): void
+    public function markInvalid(string $reason): void
     {
-        $path = $this->pathFor($username);
+        $path = $this->cookiesPath();
 
         if (is_file($path)) {
             @unlink($path);
         }
 
-        Cache::put(
-            $this->cooldownKey($username),
-            $reason,
-            (int) config('services.instagram.login_cooldown', 60 * 5),
-        );
-
         Log::warning('instagram.cookies.invalidated', [
-            'username' => $username,
+            'username' => $this->credentials()['username'] ?? null,
             'reason' => $reason,
         ]);
     }
 
-    public function refresh(string $username, string $password): bool
+    public function refresh(): bool
     {
-        if ($password === '') {
-            Log::warning('instagram.login.missing_password', ['username' => $username]);
+        $credentials = $this->credentials();
+
+        if ($credentials === null) {
+            Log::warning('instagram.login.missing_credentials');
 
             return false;
         }
 
-        $result = $this->client->login($username, $password);
+        $result = $this->client->login($credentials['username'], $credentials['password']);
 
         if (! $result->isOk() || $result->cookiesTxt === null) {
             Cache::put(
-                $this->cooldownKey($username),
+                self::COOLDOWN_CACHE_KEY,
                 $result->status->value,
                 (int) config('services.instagram.login_cooldown', 60 * 5),
             );
 
             Log::warning('instagram.login.failed', [
-                'username' => $username,
+                'username' => $credentials['username'],
                 'status' => $result->status->value,
                 'message' => $result->errorMessage,
             ]);
@@ -122,37 +80,26 @@ class InstagramCookieJar
             return false;
         }
 
-        $this->writeCookies($username, $result->cookiesTxt);
+        $this->writeCookies($result->cookiesTxt);
 
-        Log::info('instagram.login.ok', ['username' => $username]);
+        Log::info('instagram.login.ok', ['username' => $credentials['username']]);
 
         return true;
     }
 
     /**
-     * @return array<int, array{username: string, password: string}>
+     * @return array{username: string, password: string}|null
      */
-    public function accounts(): array
+    public function credentials(): ?array
     {
-        $raw = (array) config('services.instagram.accounts', []);
-        $accounts = [];
+        $username = (string) config('services.instagram.username', '');
+        $password = (string) config('services.instagram.password', '');
 
-        foreach ($raw as $entry) {
-            if (! is_array($entry)) {
-                continue;
-            }
-
-            $username = (string) ($entry['username'] ?? '');
-            $password = (string) ($entry['password'] ?? '');
-
-            if ($username === '' || $password === '') {
-                continue;
-            }
-
-            $accounts[] = ['username' => $username, 'password' => $password];
+        if ($username === '' || $password === '') {
+            return null;
         }
 
-        return $accounts;
+        return ['username' => $username, 'password' => $password];
     }
 
     public function cacheDir(): string
@@ -166,23 +113,25 @@ class InstagramCookieJar
         return $dir;
     }
 
-    public function pathFor(string $username): string
+    public function cookiesPath(): string
     {
-        $safe = preg_replace('/[^A-Za-z0-9_.-]/', '_', $username) ?? 'unknown';
-
-        return $this->cacheDir().'/'.$safe.'.txt';
+        return $this->cacheDir().'/instagram.txt';
     }
 
-    private function writeCookies(string $username, string $cookiesTxt): void
+    private function cacheHit(string $path, int $ttl): bool
     {
-        $path = $this->pathFor($username);
+        if (! is_file($path) || filesize($path) === 0) {
+            return false;
+        }
+
+        return (time() - (int) filemtime($path)) <= $ttl;
+    }
+
+    private function writeCookies(string $cookiesTxt): void
+    {
+        $path = $this->cookiesPath();
 
         file_put_contents($path, $cookiesTxt);
         @chmod($path, 0600);
-    }
-
-    private function cooldownKey(string $username): string
-    {
-        return 'ig:cooldown:'.sha1($username);
     }
 }

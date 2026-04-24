@@ -11,17 +11,18 @@ beforeEach(function () {
 
     config()->set('services.instagram.cookies_ttl', 60 * 60 * 24);
     config()->set('services.instagram.login_cooldown', 300);
+    config()->set('services.instagram.username', null);
+    config()->set('services.instagram.password', null);
 });
 
 afterEach(function () {
     File::deleteDirectory(storage_path('app/private/instagram-cookies'));
 });
 
-function seedCookiesFile(string $username, int $mtimeOffsetSeconds = 0): string
+function seedCookiesFile(int $mtimeOffsetSeconds = 0): string
 {
-    $dir = storage_path('app/private/instagram-cookies');
-    File::ensureDirectoryExists($dir);
-    $path = $dir.'/'.$username.'.txt';
+    $path = app(InstagramCookieJar::class)->cookiesPath();
+    File::ensureDirectoryExists(dirname($path));
     File::put($path, "# Netscape HTTP Cookie File\n.instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\tseeded\n");
 
     if ($mtimeOffsetSeconds !== 0) {
@@ -45,97 +46,64 @@ function fakeSuccessfulLogin(): void
     ]);
 }
 
-it('returns null when no accounts are configured', function () {
-    config()->set('services.instagram.accounts', []);
+it('returns null when credentials are not configured', function () {
     Http::fake();
 
-    expect(app(InstagramCookieJar::class)->pickCookies())->toBeNull();
+    expect(app(InstagramCookieJar::class)->pickCookiesPath())->toBeNull();
     Http::assertNothingSent();
 });
 
 it('returns the cached path on a fresh-cache hit without calling Instagram', function () {
-    config()->set('services.instagram.accounts', [['username' => 'acct1', 'password' => 'pw']]);
-    $path = seedCookiesFile('acct1');
+    config()->set('services.instagram.username', 'acct1');
+    config()->set('services.instagram.password', 'pw');
+    $path = seedCookiesFile();
     Http::fake();
 
-    $pick = app(InstagramCookieJar::class)->pickCookies();
-
-    expect($pick)->toMatchArray(['username' => 'acct1', 'path' => $path]);
+    expect(app(InstagramCookieJar::class)->pickCookiesPath())->toBe($path);
     Http::assertNothingSent();
 });
 
 it('logs in and writes a cookies file when the cache is empty', function () {
-    config()->set('services.instagram.accounts', [['username' => 'acct1', 'password' => 'pw']]);
+    config()->set('services.instagram.username', 'acct1');
+    config()->set('services.instagram.password', 'pw');
     fakeSuccessfulLogin();
 
-    $pick = app(InstagramCookieJar::class)->pickCookies();
+    $path = app(InstagramCookieJar::class)->pickCookiesPath();
 
-    expect($pick['username'])->toBe('acct1');
-    expect(File::exists($pick['path']))->toBeTrue();
-    expect(File::get($pick['path']))->toContain('FRESH');
+    expect($path)->not->toBeNull();
+    expect(File::exists($path))->toBeTrue();
+    expect(File::get($path))->toContain('FRESH');
 });
 
-it('rotates LRU across fresh accounts, picking the oldest first', function () {
-    config()->set('services.instagram.accounts', [
-        ['username' => 'acct1', 'password' => 'pw'],
-        ['username' => 'acct2', 'password' => 'pw'],
-    ]);
-    $old = seedCookiesFile('acct1', -120);
-    $new = seedCookiesFile('acct2', -10);
-    Http::fake();
+it('treats stale cookies as a cache miss and re-logs in', function () {
+    config()->set('services.instagram.username', 'acct1');
+    config()->set('services.instagram.password', 'pw');
+    config()->set('services.instagram.cookies_ttl', 60);
+    seedCookiesFile(-120);
+    fakeSuccessfulLogin();
 
-    $pick = app(InstagramCookieJar::class)->pickCookies();
+    $path = app(InstagramCookieJar::class)->pickCookiesPath();
 
-    expect($pick['username'])->toBe('acct1');
-    expect($pick['path'])->toBe($old);
-    expect(filemtime($old))->toBeGreaterThanOrEqual(filemtime($new));
+    expect(File::get($path))->toContain('FRESH');
 });
 
-it('excludes the username passed as argument', function () {
-    config()->set('services.instagram.accounts', [
-        ['username' => 'acct1', 'password' => 'pw'],
-        ['username' => 'acct2', 'password' => 'pw'],
-    ]);
-    seedCookiesFile('acct1', -120);
-    seedCookiesFile('acct2', -10);
-    Http::fake();
-
-    $pick = app(InstagramCookieJar::class)->pickCookies(excludeUsername: 'acct1');
-
-    expect($pick['username'])->toBe('acct2');
-});
-
-it('markInvalid deletes the cached file and places the account on cooldown', function () {
-    config()->set('services.instagram.accounts', [['username' => 'acct1', 'password' => 'pw']]);
-    $path = seedCookiesFile('acct1');
-    Http::fake();
+it('markInvalid deletes the cached file without putting the account on cooldown', function () {
+    config()->set('services.instagram.username', 'acct1');
+    config()->set('services.instagram.password', 'pw');
+    $path = seedCookiesFile();
+    fakeSuccessfulLogin();
 
     $jar = app(InstagramCookieJar::class);
-    $jar->markInvalid('acct1', 'test reason');
+    $jar->markInvalid('test reason');
 
     expect(File::exists($path))->toBeFalse();
-    expect($jar->pickCookies())->toBeNull();
-    Http::assertNothingSent();
+    expect($jar->pickCookiesPath())->toBe($path);
+    expect(File::get($path))->toContain('FRESH');
 });
 
-it('logs in on next pick once cooldown expires', function () {
-    config()->set('services.instagram.accounts', [['username' => 'acct1', 'password' => 'pw']]);
-    config()->set('services.instagram.login_cooldown', 1);
-    fakeSuccessfulLogin();
-
-    $jar = app(InstagramCookieJar::class);
-    $jar->markInvalid('acct1', 'stale');
-
-    expect($jar->pickCookies())->toBeNull();
-
-    Cache::flush();
-
-    $pick = $jar->pickCookies();
-    expect($pick['username'])->toBe('acct1');
-});
-
-it('returns null when every account fails to log in', function () {
-    config()->set('services.instagram.accounts', [['username' => 'acct1', 'password' => 'pw']]);
+it('returns null and skips login while the cooldown is active after a login failure', function () {
+    config()->set('services.instagram.username', 'acct1');
+    config()->set('services.instagram.password', 'pw');
     Http::fake([
         'https://www.instagram.com/accounts/login/' => Http::response('', 200, [
             'Set-Cookie' => ['csrftoken=tok; Path=/; Domain=.instagram.com'],
@@ -147,5 +115,10 @@ it('returns null when every account fails to log in', function () {
         ]),
     ]);
 
-    expect(app(InstagramCookieJar::class)->pickCookies())->toBeNull();
+    $jar = app(InstagramCookieJar::class);
+    expect($jar->pickCookiesPath())->toBeNull();
+
+    Http::fake();
+    expect($jar->pickCookiesPath())->toBeNull();
+    Http::assertNothingSent();
 });

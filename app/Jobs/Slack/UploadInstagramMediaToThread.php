@@ -42,14 +42,13 @@ class UploadInstagramMediaToThread implements ShouldQueue
         File::makeDirectory($tmpDir, 0755, true, true);
 
         try {
-            [$result, $pickedUsername] = $this->runYtDlpWithRotation($jar, $tmpDir);
+            $result = $this->runYtDlpWithRetry($jar, $tmpDir);
 
             if ($result === null || $result->failed()) {
                 Log::warning('slack.ig.ytdlp_failed', [
                     'url' => $this->instagramUrl,
                     'exit_code' => $result?->exitCode(),
                     'stderr' => $result?->errorOutput(),
-                    'ig_username' => $pickedUsername,
                 ]);
 
                 return;
@@ -87,32 +86,23 @@ class UploadInstagramMediaToThread implements ShouldQueue
         }
     }
 
-    /**
-     * @return array{0: ProcessResult|null, 1: string|null}
-     */
-    private function runYtDlpWithRotation(InstagramCookieJar $jar, string $tmpDir): array
+    private function runYtDlpWithRetry(InstagramCookieJar $jar, string $tmpDir): ?ProcessResult
     {
-        $excluded = null;
         $lastResult = null;
-        $lastUsername = null;
 
         for ($attempt = 0; $attempt < 2; $attempt++) {
-            $pick = $jar->pickCookies($excluded);
-            $cookiesPath = $pick['path'] ?? (string) config('services.slack.ytdlp_cookies', '');
-            $username = $pick['username'] ?? null;
+            $cookiesPath = $jar->pickCookiesPath() ?? (string) config('services.slack.ytdlp_cookies', '');
+            $usedJar = $cookiesPath === $jar->cookiesPath() && is_file($cookiesPath);
 
             $result = $this->runYtDlp($cookiesPath, $tmpDir);
-
             $lastResult = $result;
-            $lastUsername = $username;
 
             if ($result->successful()) {
-                return [$result, $username];
+                return $result;
             }
 
-            if ($username !== null && $this->looksLikeAuthFailure($result->errorOutput())) {
-                $jar->markInvalid($username, 'yt-dlp: '.trim(Str::limit($result->errorOutput(), 200)));
-                $excluded = $username;
+            if ($usedJar && $this->looksLikeAuthFailure($result->errorOutput())) {
+                $jar->markInvalid('yt-dlp: '.trim(Str::limit($result->errorOutput(), 200)));
 
                 continue;
             }
@@ -120,7 +110,7 @@ class UploadInstagramMediaToThread implements ShouldQueue
             break;
         }
 
-        return [$lastResult, $lastUsername];
+        return $lastResult;
     }
 
     private function runYtDlp(string $cookiesPath, string $tmpDir): ProcessResult
