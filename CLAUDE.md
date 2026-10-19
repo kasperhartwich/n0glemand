@@ -4,28 +4,61 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project state
 
-This is a near-empty Laravel 13 skeleton (PHP 8.4). Only the default `User` model, the stock `/` welcome route, and example Pest tests exist — any new feature work is greenfield. When adding structure, mirror Laravel conventions rather than inventing new layouts.
+n0glemand is a Slack bot built on Laravel 13 (PHP 8.4). It has no user-facing web app: the only page is a static splash at `/`. Everything else is Slack webhooks handled synchronously in a controller, which hand off the real work to queued jobs. When adding structure, mirror Laravel conventions and the patterns below rather than inventing new layouts.
+
+What the bot does:
+
+- **`ping`** in a channel: replies `pong` in the thread.
+- **Instagram reel/post/tv URL** in a message: downloads the media with `yt-dlp` and uploads it to the thread.
+- **Spotify URL or `spotify:` URI** in a message: looks it up on song.link (`api.song.link/v1-alpha.1/links`) and posts the `pageUrl` in the thread.
+- **`channel_created` event**: joins the new public channel.
+- **`/n0glemand` slash command**: `help`, and `logs [N]` (tails the last N lines, default 50, max 200, of `storage/logs/laravel.log` as an ephemeral reply).
+
+## Structure
+
+- **Routes** (`routes/web.php`): `GET /` (welcome view), `POST /slack/events` (`slack.events`), `POST /slack/commands` (`slack.commands`). Both Slack routes use `App\Http\Middleware\VerifySlackSignature` (HMAC `v0` signature, 5 minute timestamp tolerance) and are exempt from CSRF in `bootstrap/app.php` (`preventRequestForgery(except: ...)`). Health check at `/up`.
+- **`App\Http\Controllers\Slack\EventsController`**: answers `url_verification`, dedupes retries by `event_id` with `Cache::add("slack:event:{id}")` (TTL `services.slack.event_dedupe_ttl`, 10 min), then calls `SlackEventRouter`. Returns 204.
+- **`App\Http\Controllers\Slack\CommandsController`**: the `/n0glemand` slash command.
+- **`App\Services\Slack\SlackEventRouter`**: routes `event_callback` payloads. `message` events (bot messages and the subtypes `bot_message`, `message_changed`, `message_deleted`, `channel_join`, `channel_leave` are skipped) go to every handler whose `matches()` is true; `channel_created` dispatches `JoinPublicChannel`. Replies go to `thread_ts` if set, otherwise `ts`.
+- **Message handlers** (`App\Services\Slack\Handlers`, implementing `Contracts\MessageHandler` with `matches()` and `handle()`): `PingHandler`, `InstagramLinkHandler`, `SpotifyLinkHandler`. They are tagged `slack.handlers` in `App\Providers\SlackServiceProvider`; **a new handler must be added to that tag list**. Handlers only parse and dispatch a job; they unwrap Slack's `<url|label>` link syntax and dedupe URLs per message.
+- **Jobs** (`App\Jobs\Slack`, all `ShouldQueue` with `Queueable`, explicit `$tries`, `$timeout`, `backoff()` and a `failed()` that logs): `PostPingReply`, `PostSonglinkToThread` (4xx from song.link is logged and dropped, 5xx is retried), `UploadInstagramMediaToThread` (runs `yt-dlp` via `Process` in a temp dir under `storage/app/slack-ig/<uuid>`, 900 MB limit, uploads with Slack's external upload flow, always deletes the temp dir), `JoinPublicChannel`.
+- **`App\Services\Slack\SlackClient`**: thin wrapper over the Slack Web API with the `Http` client (`chat.postMessage`, `files.getUploadURLExternal` + `files.completeUploadExternal`, `conversations.join`, `conversations.list`, `auth.test`). It throws `RuntimeException` when Slack answers `ok: false`. Bound as a singleton in `SlackServiceProvider`.
+- **Instagram login** (`App\Services\Instagram`): `InstagramCookieJar` logs in a single account (`INSTAGRAM_USERNAME`/`INSTAGRAM_PASSWORD`) through `InstagramLoginClient` (scrapes the web login page for `csrftoken`, posts to `/accounts/login/ajax/`, classifies the answer as `InstagramLoginStatus`), and writes the cookies in Netscape format (`NetscapeCookieFormatter`) to `storage/app/private/instagram-cookies/instagram.txt` (mode 0600) for `yt-dlp --cookies`. Cookies are reused for `INSTAGRAM_COOKIES_TTL` (default 7 days); a failed login sets a cooldown in the cache (`ig:login:cooldown`, `INSTAGRAM_LOGIN_COOLDOWN`, default 5 min). When `yt-dlp` fails with what looks like an auth error, the job invalidates the cookies and retries once. Without credentials it falls back to `YTDLP_COOKIES_PATH`.
+- **Console commands**: `instagram:refresh` (force a fresh Instagram login), `slack:join-all-public {--sleep=1}` (join every non-archived public channel). `routes/console.php` schedules `horizon:snapshot` every five minutes.
+- **Models and database**: only the stock `User` model and the default migrations (`users`, `password_reset_tokens`, `sessions`, `cache`, `jobs`). The bot keeps no domain data in the database.
+- **Frontend**: one Blade view (`resources/views/welcome.blade.php`), Tailwind v4 through Vite. No JavaScript app.
+- **`slack-manifest.yaml`**: the Slack app manifest (bot scopes, the slash command, event subscriptions `message.channels`, `message.groups`, `channel_created`). Its URLs are placeholders (`REPLACE-ME`).
+
+## Configuration and services
+
+- **Queue**: `QUEUE_CONNECTION=redis` with **Horizon** (`config/horizon.php`: one `supervisor-1` on queue `default`, 1-3 processes, 4 in production; job timeout 240 s; prefix `HORIZON_PREFIX`). The Horizon dashboard is only reachable in the `local` environment (`HorizonServiceProvider::gate()`). Redis client `phpredis`.
+- **Database**: MySQL in `.env.example` (`n0glemand` on 127.0.0.1:3306); sessions and cache use the `database` driver, so the cache tables must exist for event dedupe and the Instagram cooldown.
+- **Slack settings** live in `config/services.php` under `slack` (`SLACK_BOT_USER_OAUTH_TOKEN`, `SLACK_SIGNING_SECRET`, `YTDLP_BINARY`, `YTDLP_COOKIES_PATH`, plus fixed values for API base, tolerances and limits) and `instagram`.
+- **Sentry**: `sentry/sentry-laravel`, wired into exception handling in `bootstrap/app.php`. The `stack` log channel includes `sentry` (level `SENTRY_LOG_LEVEL`, default `warning`) automatically when `SENTRY_LARAVEL_DSN` is set, unless `LOG_STACK` overrides it.
+- **External binary**: production needs `yt-dlp` installed (path via `YTDLP_BINARY`).
+- **Logging**: every step logs a structured event name (`slack.event.received`, `slack.router.dispatched`, `slack.ig.ytdlp_failed`, `instagram.login.failed`, ...). Follow that `area.thing.what` naming for new log lines.
 
 ## Commands
 
-- `composer run dev` — runs `php artisan serve`, `queue:listen`, `pail` (logs), and `npm run dev` (Vite) concurrently via `concurrently`. Use this over starting processes individually. The site is also always available via Herd at `http://n0glemand.test` (no need to run a server for Herd access).
-- `composer run test` — clears config then runs `php artisan test` (Pest).
-- `php artisan test --compact` / `php artisan test --compact --filter=testName` — preferred for focused runs.
-- `npm run build` / `npm run dev` — Vite build or dev server for `resources/css/app.css` + `resources/js/app.js` (Tailwind v4 via `@tailwindcss/vite`).
-- `vendor/bin/pint --dirty --format agent` — **must run after any PHP edit** before finalizing (see Pint rules below). Do not use `--test`.
-- `php artisan pail` — tail application logs.
+- `composer run dev`: runs `php artisan serve`, `queue:listen`, `pail` (logs), and `npm run dev` (Vite) concurrently via `concurrently`. Use this over starting processes individually. The site is also always available via Herd at `http://n0glemand.test` (no need to run a server for Herd access).
+- `composer run test`: clears config then runs `php artisan test` (Pest).
+- `php artisan test --compact` / `php artisan test --compact --filter=testName`: preferred for focused runs.
+- `npm run build` / `npm run dev`: Vite build or dev server for `resources/css/app.css` + `resources/js/app.js` (Tailwind v4 via `@tailwindcss/vite`).
+- `vendor/bin/pint --dirty --format agent`: **must run after any PHP edit** before finalizing (see Pint rules below). Do not use `--test`.
+- `php artisan pail`: tail application logs.
 
 ## Testing setup
 
-- Pest v4 + `pestphp/pest-plugin-laravel`. `tests/Pest.php` binds `Tests\TestCase` to the `Feature` suite; `RefreshDatabase` is commented out — opt in per-file when a test hits the DB.
-- `phpunit.xml` forces tests onto `sqlite` `:memory:`, `array` cache/session, `sync` queue, and `null` broadcast — do not write tests that assume a real queue/broadcast driver.
+- Pest v4 + `pestphp/pest-plugin-laravel`. `tests/Pest.php` binds `Tests\TestCase` to the `Feature` suite; `RefreshDatabase` is commented out, so opt in per file when a test hits the DB.
+- `phpunit.xml` forces tests onto `sqlite` `:memory:`, `array` cache/session, `sync` queue, and `null` broadcast. Do not write tests that assume a real queue/broadcast driver; the suite needs neither MySQL nor Redis.
+- Tests live in `tests/Feature/Slack` and `tests/Feature/Instagram`. They fake the outside world with `Http::fake()`, `Queue::fake()` and `Process::fake()`, and sign Slack requests themselves; follow that pattern, never call Slack, song.link or Instagram for real.
 - Create tests with `php artisan make:test --pest {Name}` (add `--unit` for the Unit suite). Most new tests should be Feature tests.
 
 ## Tooling in this repo
 
-- **Laravel Boost** MCP server is installed (`boost.json`) — use its tools (`search-docs`, `database-query`, `database-schema`, `get-absolute-url`, `browser-logs`, etc.) in preference to manual shell/file alternatives. See Boost rules below.
+- **Laravel Boost** MCP server is installed (`boost.json`): use its tools (`search-docs`, `database-query`, `database-schema`, `get-absolute-url`, `browser-logs`, etc.) in preference to manual shell/file alternatives. See Boost rules below.
 - **Skills** enabled via `boost.json`: `laravel-best-practices`, `pest-testing`. Activate them proactively when working in those domains.
-- DB default per `.env` is SQLite at `database/database.sqlite`; `php artisan migrate` creates the file on first run.
+- `.npmrc` sets `ignore-scripts=true`.
 
 ---
 
