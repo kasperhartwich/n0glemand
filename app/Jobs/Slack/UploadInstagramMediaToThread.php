@@ -19,7 +19,13 @@ class UploadInstagramMediaToThread implements ShouldQueue
 
     public int $tries = 2;
 
-    public int $timeout = 180;
+    /**
+     * Must cover the worst case of one attempt: two yt-dlp runs, two logins of
+     * two requests each and the three upload requests (230 s with the config in
+     * services.php), and stay below the queue's retry_after. A worker that hits
+     * it exits without running `finally`, so `slack:prune-ig-downloads` cleans up.
+     */
+    public int $timeout = 240;
 
     public function __construct(
         public string $instagramUrl,
@@ -133,7 +139,7 @@ class UploadInstagramMediaToThread implements ShouldQueue
         $command[] = $this->instagramUrl;
 
         return Process::path($tmpDir)
-            ->timeout((int) config('services.slack.ytdlp_timeout', 120))
+            ->timeout((int) config('services.slack.ytdlp_timeout', 60))
             ->run($command);
     }
 

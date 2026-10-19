@@ -54,7 +54,9 @@ class InstagramLoginClient
         return Http::withHeaders([
             'User-Agent' => self::USER_AGENT,
             'Accept-Language' => 'en-US,en;q=0.9',
-        ])->get(self::LOGIN_PAGE_URL);
+        ])
+            ->timeout((int) config('services.instagram.login_timeout', 10))
+            ->get(self::LOGIN_PAGE_URL);
     }
 
     private function submitLogin(string $username, string $password, string $csrfToken, array $cookies): Response
@@ -62,6 +64,7 @@ class InstagramLoginClient
         $encPassword = sprintf('#PWD_INSTAGRAM_BROWSER:0:%d:%s', time(), $password);
 
         return Http::asForm()
+            ->timeout((int) config('services.instagram.login_timeout', 10))
             ->withHeaders([
                 'User-Agent' => self::USER_AGENT,
                 'Accept' => '*/*',

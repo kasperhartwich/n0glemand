@@ -17,7 +17,7 @@ beforeEach(function () {
     config()->set('services.slack.api_base', 'https://slack.test/api');
     config()->set('services.slack.max_upload_bytes', 900 * 1024 * 1024);
     config()->set('services.slack.ytdlp_binary', 'yt-dlp');
-    config()->set('services.slack.ytdlp_timeout', 120);
+    config()->set('services.slack.ytdlp_timeout', 60);
     config()->set('services.instagram.username', null);
     config()->set('services.instagram.password', null);
 
@@ -214,4 +214,29 @@ it('deletes the cached cookies and re-logs in on retry when yt-dlp reports login
 
     expect($attempts)->toBe(2);
     Http::assertSent(fn (Request $req) => $req->url() === 'https://www.instagram.com/accounts/login/ajax/');
+});
+
+it('fits the worst case of one attempt inside the job timeout, and the timeout below retry_after', function () {
+    $ytdlp = 2 * config('services.slack.ytdlp_timeout');
+    $logins = 2 * 2 * config('services.instagram.login_timeout');
+    $upload = 10 + config('services.slack.upload_timeout') + 10;
+
+    $timeout = (new UploadInstagramMediaToThread('u', 'C1', '1.2'))->timeout;
+
+    expect($ytdlp + $logins + $upload)->toBeLessThan($timeout)
+        ->and($timeout)->toBeLessThan(config('queue.connections.redis.retry_after'));
+});
+
+it('prunes download directories older than the max age and keeps fresh ones', function () {
+    $old = storage_path('app/slack-ig/old-uuid');
+    $fresh = storage_path('app/slack-ig/fresh-uuid');
+    File::ensureDirectoryExists($old);
+    File::ensureDirectoryExists($fresh);
+    File::put($old.'/leftover.mp4', 'x');
+    touch($old, time() - 2 * 60 * 60);
+
+    $this->artisan('slack:prune-ig-downloads')->assertSuccessful();
+
+    expect(File::exists($old))->toBeFalse()
+        ->and(File::exists($fresh))->toBeTrue();
 });
