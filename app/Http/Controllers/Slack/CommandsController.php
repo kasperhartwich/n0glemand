@@ -69,10 +69,10 @@ class CommandsController extends Controller
         $requested = (int) ($args !== '' ? $args : 50);
         $lines = max(1, min($requested, 200));
 
-        $path = storage_path('logs/laravel.log');
+        $path = $this->newestLogFile();
 
-        if (! is_file($path)) {
-            return $this->ephemeral('No log file found at `storage/logs/laravel.log`.');
+        if ($path === null) {
+            return $this->ephemeral('No log file found in `storage/logs`.');
         }
 
         $tail = $this->tailFile($path, $lines);
@@ -89,9 +89,22 @@ class CommandsController extends Controller
             $truncated = true;
         }
 
-        $header = "Last {$lines} lines from `laravel.log`".($truncated ? ' (truncated)' : '').':';
+        $header = "Last {$lines} lines from `".basename($path).'`'.($truncated ? ' (truncated)' : '').':';
 
         return $this->ephemeral("{$header}\n```\n{$tail}\n```");
+    }
+
+    /**
+     * The single channel writes laravel.log, the daily one laravel-YYYY-MM-DD.log.
+     */
+    protected function newestLogFile(): ?string
+    {
+        $files = glob(storage_path('logs/laravel*.log')) ?: [];
+
+        return collect($files)
+            ->filter(fn (string $file) => is_file($file))
+            ->sortByDesc(fn (string $file) => filemtime($file))
+            ->first();
     }
 
     protected function tailFile(string $path, int $lines): string

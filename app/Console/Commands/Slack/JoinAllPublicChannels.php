@@ -34,7 +34,7 @@ class JoinAllPublicChannels extends Command
                 try {
                     $result = $slack->joinChannel($id);
 
-                    if (($result['error'] ?? null) === 'already_in_channel') {
+                    if (($result['warning'] ?? null) === 'already_in_channel') {
                         $already++;
                         $this->line("  ∘ already in #{$name}");
                     } else {

@@ -3,6 +3,7 @@
 use App\Jobs\Slack\JoinPublicChannel;
 use App\Jobs\Slack\PostSonglinkToThread;
 use App\Jobs\Slack\UploadInstagramMediaToThread;
+use App\Services\Slack\SlackEventRouter;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Testing\TestResponse;
@@ -154,4 +155,23 @@ it('uses thread_ts when the message is inside a thread', function () {
     postSlackEvent($payload)->assertNoContent();
 
     Queue::assertPushed(PostSonglinkToThread::class, fn ($job) => $job->threadTs === '1699999999.000000');
+});
+
+it('forgets the event id when routing throws, so a Slack retry is routed again', function () {
+    $calls = 0;
+    $this->mock(SlackEventRouter::class)
+        ->shouldReceive('route')
+        ->twice()
+        ->andReturnUsing(function () use (&$calls) {
+            if (++$calls === 1) {
+                throw new RuntimeException('boom');
+            }
+        });
+
+    $payload = messageEvent('ping', eventId: 'Ev-throw');
+
+    $this->withoutExceptionHandling();
+    expect(fn () => postSlackEvent($payload))->toThrow(RuntimeException::class, 'boom');
+
+    postSlackEvent($payload)->assertNoContent();
 });

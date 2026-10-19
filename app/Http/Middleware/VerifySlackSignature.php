@@ -44,7 +44,7 @@ class VerifySlackSignature
 
     protected function reject(string $reason): Response
     {
-        Log::warning('slack.signature.invalid', ['reason' => $reason]);
+        Log::info('slack.signature.invalid', ['reason' => $reason]);
 
         return response()->json(['error' => 'invalid_signature'], 401);
     }

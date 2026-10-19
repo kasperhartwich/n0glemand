@@ -12,7 +12,7 @@ What the bot does:
 - **Instagram reel/post/tv URL** in a message: downloads the media with `yt-dlp` and uploads it to the thread.
 - **Spotify URL or `spotify:` URI** in a message: looks it up on song.link (`api.song.link/v1-alpha.1/links`) and posts the `pageUrl` in the thread.
 - **`channel_created` event**: joins the new public channel.
-- **`/n0glemand` slash command**: `help`, and `logs [N]` (tails the last N lines, default 50, max 200, of `storage/logs/laravel.log` as an ephemeral reply).
+- **`/n0glemand` slash command**: `help`, and `logs [N]` (tails the last N lines, default 50, max 200, of the newest `storage/logs/laravel*.log` as an ephemeral reply).
 
 ## Structure
 
@@ -34,7 +34,7 @@ What the bot does:
 - **Queue**: `QUEUE_CONNECTION=redis` with **Horizon** (`config/horizon.php`: one `supervisor-1` on queue `default`, 1-3 processes, 4 in production; job timeout 240 s; prefix `HORIZON_PREFIX`). The Horizon dashboard is only reachable in the `local` environment (`HorizonServiceProvider::gate()`). Redis client `phpredis`.
 - **Database**: MySQL in `.env.example` (`n0glemand` on 127.0.0.1:3306); sessions and cache use the `database` driver, so the cache tables must exist for event dedupe and the Instagram cooldown.
 - **Slack settings** live in `config/services.php` under `slack` (`SLACK_BOT_USER_OAUTH_TOKEN`, `SLACK_SIGNING_SECRET`, `YTDLP_BINARY`, `YTDLP_COOKIES_PATH`, plus fixed values for API base, tolerances and limits) and `instagram`.
-- **Sentry**: `sentry/sentry-laravel`, wired into exception handling in `bootstrap/app.php`. The `stack` log channel includes `sentry` (level `SENTRY_LOG_LEVEL`, default `warning`) automatically when `SENTRY_LARAVEL_DSN` is set, unless `LOG_STACK` overrides it.
+- **Sentry**: `sentry/sentry-laravel`, wired into exception handling in `bootstrap/app.php`. The `stack` log channel writes `daily` in production and `single` elsewhere, and includes `sentry` (level `SENTRY_LOG_LEVEL`, default `warning`) automatically when `SENTRY_LARAVEL_DSN` is set, unless `LOG_STACK` overrides it.
 - **External binary**: production needs `yt-dlp` installed (path via `YTDLP_BINARY`).
 - **Logging**: every step logs a structured event name (`slack.event.received`, `slack.router.dispatched`, `slack.ig.ytdlp_failed`, `instagram.login.failed`, ...). Follow that `area.thing.what` naming for new log lines.
 

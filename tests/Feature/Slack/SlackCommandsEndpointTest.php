@@ -118,7 +118,7 @@ it('responds gracefully when the log file does not exist', function () {
     ]);
 
     $response->assertOk()
-        ->assertJsonPath('text', 'No log file found at `storage/logs/laravel.log`.');
+        ->assertJsonPath('text', 'No log file found in `storage/logs`.');
 });
 
 it('rejects unknown subcommands with a hint', function () {
@@ -140,4 +140,20 @@ it('rejects unknown top-level commands', function () {
 
     $response->assertOk()
         ->assertJsonPath('text', 'Unknown command `/other`.');
+});
+
+it('tails the newest daily log file', function () {
+    file_put_contents(storage_path('logs/laravel-2026-10-18.log'), "old-line\n");
+    touch(storage_path('logs/laravel-2026-10-18.log'), time() - 86400);
+    file_put_contents(storage_path('logs/laravel-2026-10-19.log'), "new-line\n");
+
+    $response = postSlackCommand([
+        'command' => '/n0glemand',
+        'text' => 'logs',
+    ]);
+
+    expect($response->json('text'))
+        ->toContain('laravel-2026-10-19.log')
+        ->toContain('new-line')
+        ->not->toContain('old-line');
 });

@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\VerifySlackSignature;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 
 beforeEach(function () {
@@ -84,4 +85,15 @@ it('allows valid signed requests through', function () {
         ],
         content: $body,
     )->assertOk()->assertJson(['ok' => true]);
+});
+
+it('logs a rejected signature at info level so it stays out of Sentry', function () {
+    Log::spy();
+
+    $this->post('/test-slack-signature', [], [
+        'X-Slack-Request-Timestamp' => (string) time(),
+    ])->assertStatus(401);
+
+    Log::shouldHaveReceived('info')->with('slack.signature.invalid', ['reason' => 'missing_headers_or_secret']);
+    Log::shouldNotHaveReceived('warning');
 });

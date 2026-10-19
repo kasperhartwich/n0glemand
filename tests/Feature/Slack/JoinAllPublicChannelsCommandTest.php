@@ -49,8 +49,10 @@ it('reports channels the bot is already in without counting them as joined', fun
 
     Http::fake([
         'slack.test/api/conversations.join' => Http::response([
-            'ok' => false,
-            'error' => 'already_in_channel',
+            'ok' => true,
+            'channel' => ['id' => 'C1'],
+            'warning' => 'already_in_channel',
+            'response_metadata' => ['warnings' => ['already_in_channel']],
         ]),
     ]);
 

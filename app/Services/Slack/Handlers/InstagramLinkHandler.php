@@ -39,7 +39,7 @@ class InstagramLinkHandler implements MessageHandler
         preg_match_all(self::URL_REGEX, $text, $matches, PREG_SET_ORDER);
 
         return collect($matches)
-            ->unique(fn (array $m) => strtolower($m[1]))
+            ->unique(fn (array $m) => $m[1])
             ->map(fn (array $m) => $m[0])
             ->values();
     }

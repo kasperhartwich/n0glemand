@@ -94,9 +94,7 @@ class SlackClient
             ->throw()
             ->json();
 
-        if (($json['ok'] ?? false) !== true && ($json['error'] ?? null) !== 'already_in_channel') {
-            $this->assertOk($json, 'conversations.join');
-        }
+        $this->assertOk($json, 'conversations.join');
 
         return $json;
     }

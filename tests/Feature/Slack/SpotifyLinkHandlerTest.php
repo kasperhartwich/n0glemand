@@ -4,6 +4,7 @@ use App\Jobs\Slack\PostSonglinkToThread;
 use App\Services\Slack\Handlers\SpotifyLinkHandler;
 use App\Services\Slack\SlackClient;
 use Illuminate\Http\Client\Request;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 
@@ -115,4 +116,27 @@ it('silently gives up on songlink 405 (the real response for unsupported URL typ
     Http::assertNotSent(
         fn (Request $request) => str_contains($request->url(), 'slack.test/api/chat.postMessage'),
     );
+});
+
+it('does not retry a songlink 4xx', function () {
+    Http::fake([
+        'api.song.link/*' => Http::response(['error' => 'not found'], 404),
+    ]);
+
+    (new PostSonglinkToThread('https://open.spotify.com/track/xyz', 'C42', '1700000000.000100'))
+        ->handle(app(SlackClient::class));
+
+    Http::assertSentCount(1);
+});
+
+it('retries a songlink 5xx and then rethrows so the queue retries the job', function () {
+    Http::fake([
+        'api.song.link/*' => Http::response('Bad Gateway', 502),
+    ]);
+
+    expect(fn () => (new PostSonglinkToThread('https://open.spotify.com/track/xyz', 'C42', '1700000000.000100'))
+        ->handle(app(SlackClient::class)))
+        ->toThrow(RequestException::class);
+
+    Http::assertSentCount(2);
 });

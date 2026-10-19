@@ -34,25 +34,17 @@ class PostSonglinkToThread implements ShouldQueue
 
     public function handle(SlackClient $slack): void
     {
-        try {
-            $response = Http::acceptJson()
-                ->timeout(8)
-                ->retry(2, 250)
-                ->get('https://api.song.link/v1-alpha.1/links', [
-                    'url' => $this->spotifyUrl,
-                ]);
-        } catch (RequestException $e) {
-            Log::warning('slack.songlink.http_failed', [
+        $response = Http::acceptJson()
+            ->timeout(8)
+            ->retry(
+                2,
+                250,
+                fn (Throwable $e): bool => ! $e instanceof RequestException || $e->response->serverError(),
+                throw: false,
+            )
+            ->get('https://api.song.link/v1-alpha.1/links', [
                 'url' => $this->spotifyUrl,
-                'status' => $e->response?->status(),
             ]);
-
-            if ($e->response && $e->response->clientError()) {
-                return;
-            }
-
-            throw $e;
-        }
 
         if ($response->clientError()) {
             Log::warning('slack.songlink.client_error', [

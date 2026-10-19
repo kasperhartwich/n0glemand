@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class EventsController extends Controller
 {
@@ -34,18 +35,27 @@ class EventsController extends Controller
         }
 
         $eventId = $payload['event_id'] ?? null;
+        $dedupeKey = is_string($eventId) && $eventId !== '' ? "slack:event:{$eventId}" : null;
 
-        if (is_string($eventId) && $eventId !== '') {
+        if ($dedupeKey !== null) {
             $ttl = (int) config('services.slack.event_dedupe_ttl', 600);
 
-            if (! Cache::add("slack:event:{$eventId}", 1, $ttl)) {
+            if (! Cache::add($dedupeKey, 1, $ttl)) {
                 Log::info('slack.event.deduped', ['event_id' => $eventId]);
 
                 return response()->noContent();
             }
         }
 
-        $router->route($payload);
+        try {
+            $router->route($payload);
+        } catch (Throwable $e) {
+            if ($dedupeKey !== null) {
+                Cache::forget($dedupeKey);
+            }
+
+            throw $e;
+        }
 
         return response()->noContent();
     }

@@ -240,3 +240,13 @@ it('prunes download directories older than the max age and keeps fresh ones', fu
     expect(File::exists($old))->toBeFalse()
         ->and(File::exists($fresh))->toBeTrue();
 });
+
+it('treats shortcodes that differ only in case as different posts', function () {
+    Queue::fake();
+
+    app(InstagramLinkHandler::class)->handle([
+        'text' => 'https://www.instagram.com/reel/AbC123/ and https://www.instagram.com/reel/abc123/',
+    ], channel: 'C1', threadTs: '111.222', userId: 'U1');
+
+    Queue::assertPushed(UploadInstagramMediaToThread::class, 2);
+});

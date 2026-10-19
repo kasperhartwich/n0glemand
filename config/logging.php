@@ -54,7 +54,7 @@ return [
 
         'stack' => [
             'driver' => 'stack',
-            'channels' => explode(',', (string) env('LOG_STACK', env('SENTRY_LARAVEL_DSN') ? 'single,sentry' : 'single')),
+            'channels' => explode(',', (string) env('LOG_STACK', (env('APP_ENV') === 'production' ? 'daily' : 'single').(env('SENTRY_LARAVEL_DSN') ? ',sentry' : ''))),
             'ignore_exceptions' => false,
         ],
 
