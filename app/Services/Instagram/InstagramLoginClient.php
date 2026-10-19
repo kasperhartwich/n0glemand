@@ -55,7 +55,7 @@ class InstagramLoginClient
             'User-Agent' => self::USER_AGENT,
             'Accept-Language' => 'en-US,en;q=0.9',
         ])
-            ->timeout((int) config('services.instagram.login_timeout', 10))
+            ->timeout((int) config('services.instagram.login_timeout', 8))
             ->get(self::LOGIN_PAGE_URL);
     }
 
@@ -64,7 +64,7 @@ class InstagramLoginClient
         $encPassword = sprintf('#PWD_INSTAGRAM_BROWSER:0:%d:%s', time(), $password);
 
         return Http::asForm()
-            ->timeout((int) config('services.instagram.login_timeout', 10))
+            ->timeout((int) config('services.instagram.login_timeout', 8))
             ->withHeaders([
                 'User-Agent' => self::USER_AGENT,
                 'Accept' => '*/*',

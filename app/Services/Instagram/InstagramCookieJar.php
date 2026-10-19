@@ -2,13 +2,17 @@
 
 namespace App\Services\Instagram;
 
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class InstagramCookieJar
 {
     private const COOLDOWN_CACHE_KEY = 'ig:login:cooldown';
+
+    private const LOGIN_LOCK_KEY = 'ig:login';
 
     public function __construct(
         private InstagramLoginClient $client,
@@ -35,7 +39,17 @@ class InstagramCookieJar
             return null;
         }
 
-        return $this->refresh() ? $path : null;
+        return $this->withLoginLock(function () use ($credentials, $path, $ttl): ?string {
+            if ($this->cacheHit($path, $ttl)) {
+                return $path;
+            }
+
+            if (Cache::has(self::COOLDOWN_CACHE_KEY)) {
+                return null;
+            }
+
+            return $this->login($credentials) ? $path : null;
+        });
     }
 
     public function markInvalid(string $reason): void
@@ -62,6 +76,35 @@ class InstagramCookieJar
             return false;
         }
 
+        return $this->withLoginLock(fn (): bool => $this->login($credentials)) ?? false;
+    }
+
+    /**
+     * Runs the callback while holding the login lock, so concurrent workers
+     * never log in twice at once. Returns null when the lock stays taken.
+     *
+     * @template TResult
+     *
+     * @param  callable(): TResult  $callback
+     * @return TResult|null
+     */
+    private function withLoginLock(callable $callback): mixed
+    {
+        try {
+            return Cache::lock(self::LOGIN_LOCK_KEY, 60)
+                ->block((int) config('services.instagram.login_lock_wait', 16), $callback);
+        } catch (LockTimeoutException) {
+            Log::warning('instagram.login.lock_timeout');
+
+            return null;
+        }
+    }
+
+    /**
+     * @param  array{username: string, password: string}  $credentials
+     */
+    private function login(array $credentials): bool
+    {
         $result = $this->client->login($credentials['username'], $credentials['password']);
 
         if (! $result->isOk() || $result->cookiesTxt === null) {
@@ -130,8 +173,10 @@ class InstagramCookieJar
     private function writeCookies(string $cookiesTxt): void
     {
         $path = $this->cookiesPath();
+        $tmpPath = $path.'.'.Str::random(8).'.tmp';
 
-        file_put_contents($path, $cookiesTxt);
-        @chmod($path, 0600);
+        file_put_contents($tmpPath, $cookiesTxt);
+        @chmod($tmpPath, 0600);
+        rename($tmpPath, $path);
     }
 }

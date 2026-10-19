@@ -117,3 +117,29 @@ it('returns null and skips login while the cooldown is active after a login fail
     expect($jar->pickCookiesPath())->toBeNull();
     Http::assertNothingSent();
 });
+
+it('writes the cookies file with mode 0600 and leaves no temp file behind', function () {
+    config()->set('services.instagram.username', 'acct1');
+    config()->set('services.instagram.password', 'pw');
+    fakeSuccessfulLogin();
+
+    $path = app(InstagramCookieJar::class)->pickCookiesPath();
+
+    expect(fileperms($path) & 0777)->toBe(0600)
+        ->and(glob(dirname($path).'/*.tmp'))->toBe([]);
+});
+
+it('skips the login and returns null while another worker holds the login lock', function () {
+    config()->set('services.instagram.username', 'acct1');
+    config()->set('services.instagram.password', 'pw');
+    config()->set('services.instagram.login_lock_wait', 0);
+    Http::fake();
+
+    Cache::lock('ig:login', 60)->get();
+
+    $jar = app(InstagramCookieJar::class);
+
+    expect($jar->pickCookiesPath())->toBeNull()
+        ->and($jar->refresh())->toBeFalse();
+    Http::assertNothingSent();
+});

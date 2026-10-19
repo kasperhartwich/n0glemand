@@ -17,7 +17,7 @@ beforeEach(function () {
     config()->set('services.slack.api_base', 'https://slack.test/api');
     config()->set('services.slack.max_upload_bytes', 900 * 1024 * 1024);
     config()->set('services.slack.ytdlp_binary', 'yt-dlp');
-    config()->set('services.slack.ytdlp_timeout', 60);
+    config()->set('services.slack.ytdlp_timeout', 50);
     config()->set('services.instagram.username', null);
     config()->set('services.instagram.password', null);
 
@@ -218,7 +218,7 @@ it('deletes the cached cookies and re-logs in on retry when yt-dlp reports login
 
 it('fits the worst case of one attempt inside the job timeout, and the timeout below retry_after', function () {
     $ytdlp = 2 * config('services.slack.ytdlp_timeout');
-    $logins = 2 * 2 * config('services.instagram.login_timeout');
+    $logins = 2 * (config('services.instagram.login_lock_wait') + 2 * config('services.instagram.login_timeout'));
     $upload = 10 + config('services.slack.upload_timeout') + 10;
 
     $timeout = (new UploadInstagramMediaToThread('u', 'C1', '1.2'))->timeout;

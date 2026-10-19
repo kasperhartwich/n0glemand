@@ -40,7 +40,7 @@ return [
         'event_dedupe_ttl' => 60 * 10,
         'max_upload_bytes' => 900 * 1024 * 1024,
         'ytdlp_binary' => env('YTDLP_BINARY', 'yt-dlp'),
-        'ytdlp_timeout' => 60,
+        'ytdlp_timeout' => 50,
         'upload_timeout' => 50,
         'ig_download_max_age' => 60 * 60,
         'ytdlp_cookies' => env('YTDLP_COOKIES_PATH'),
@@ -51,7 +51,8 @@ return [
         'password' => env('INSTAGRAM_PASSWORD'),
         'cookies_ttl' => (int) env('INSTAGRAM_COOKIES_TTL', 60 * 60 * 24 * 7),
         'login_cooldown' => (int) env('INSTAGRAM_LOGIN_COOLDOWN', 60 * 5),
-        'login_timeout' => 10,
+        'login_timeout' => 8,
+        'login_lock_wait' => 16,
     ],
 
 ];
