@@ -33,10 +33,12 @@ abstract class TestCase extends BaseTestCase
 
     protected function tearDown(): void
     {
-        parent::tearDown();
+        try {
+            parent::tearDown();
+        } finally {
+            unset($_ENV['LARAVEL_STORAGE_PATH']);
 
-        unset($_ENV['LARAVEL_STORAGE_PATH']);
-
-        (new Filesystem)->deleteDirectory($this->testStoragePath);
+            (new Filesystem)->deleteDirectory($this->testStoragePath);
+        }
     }
 }
