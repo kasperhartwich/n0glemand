@@ -8,14 +8,6 @@ beforeEach(function () {
     config()->set('services.slack.signature_tolerance', 300);
 
     Log::spy();
-
-    $path = storage_path('logs/laravel.log');
-    @mkdir(dirname($path), 0755, true);
-    @unlink($path);
-});
-
-afterEach(function () {
-    @unlink(storage_path('logs/laravel.log'));
 });
 
 function postSlackCommand(array $form, string $secret = 'test-secret', ?int $ts = null): TestResponse

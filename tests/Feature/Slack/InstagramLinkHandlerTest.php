@@ -22,14 +22,10 @@ beforeEach(function () {
     config()->set('services.instagram.password', null);
 
     Cache::flush();
-    File::deleteDirectory(storage_path('app/slack-ig'));
-    File::deleteDirectory(storage_path('app/private/instagram-cookies'));
 });
 
 afterEach(function () {
     Str::createUuidsNormally();
-    File::deleteDirectory(storage_path('app/slack-ig'));
-    File::deleteDirectory(storage_path('app/private/instagram-cookies'));
 });
 
 it('detects instagram URLs across supported shapes', function (string $text, bool $expected) {

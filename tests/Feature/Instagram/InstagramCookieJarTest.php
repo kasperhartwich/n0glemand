@@ -7,16 +7,11 @@ use Illuminate\Support\Facades\Http;
 
 beforeEach(function () {
     Cache::flush();
-    File::deleteDirectory(storage_path('app/private/instagram-cookies'));
 
     config()->set('services.instagram.cookies_ttl', 60 * 60 * 24);
     config()->set('services.instagram.login_cooldown', 300);
     config()->set('services.instagram.username', null);
     config()->set('services.instagram.password', null);
-});
-
-afterEach(function () {
-    File::deleteDirectory(storage_path('app/private/instagram-cookies'));
 });
 
 function seedCookiesFile(int $mtimeOffsetSeconds = 0): string
