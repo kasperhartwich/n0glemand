@@ -57,9 +57,9 @@ What the bot does:
 ## Tooling in this repo
 
 - **Laravel Boost** MCP server is installed (`boost.json`): use its tools (`search-docs`, `database-query`, `database-schema`, `get-absolute-url`, `browser-logs`, etc.) in preference to manual shell/file alternatives. See Boost rules below.
-- **Skills** enabled via `boost.json`: `laravel-best-practices`, `testing-best-practices`, `configuring-horizon`, `tailwindcss-development`, `infer-conventions`, `deploying-to-cloud` (Boost writes them to `.claude/skills`, which is not in git). Activate them proactively when working in those domains.
+- **Skills** enabled via `boost.json`: `laravel-best-practices`, `testing-best-practices`, `configuring-horizon`, `tailwindcss-development`, `infer-conventions` (Boost writes them to `.claude/skills`, which is not in git). Activate them proactively when working in those domains.
 - `.npmrc` sets `ignore-scripts=true`.
-- `composer update` runs `php artisan boost:update` afterwards (`post-update-cmd`), which regenerates `boost.json` and the Boost block below and stamps the PHP version of whatever binary ran it. Production runs PHP 8.4: if it wrote another version, set it back before committing.
+- `composer update` runs `php artisan boost:update` afterwards (`post-update-cmd`), which regenerates `boost.json` and the Boost block below and stamps the PHP version of whatever binary ran it. Production runs PHP 8.4: if it wrote another version, set it back before committing. The app deploys on Forge, not Laravel Cloud: keep `"cloud": false` and no `deploying-to-cloud` skill in `boost.json` if an update adds them again.
 
 ---
 
@@ -161,7 +161,6 @@ This project has domain-specific skills available in `**/skills/**`. You MUST ac
 # Deployment
 
 - Laravel can be deployed using [Laravel Cloud](https://cloud.laravel.com/), which is the fastest way to deploy and scale production Laravel applications.
-- Activate the `deploying-to-cloud` skill whenever deploying to Laravel Cloud, configuring Cloud environments or resources, using the Cloud CLI, or troubleshooting Cloud deployments.
 
 === tests rules ===
 
