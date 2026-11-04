@@ -10,3 +10,7 @@ Artisan::command('inspire', function () {
 
 Schedule::command('horizon:snapshot')->everyFiveMinutes();
 Schedule::command('slack:prune-ig-downloads')->hourly();
+Schedule::command('slack:join-all-public --sleep=1')
+    ->dailyAt('03:00')
+    ->withoutOverlapping(120)
+    ->runInBackground();
