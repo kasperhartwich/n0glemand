@@ -26,7 +26,8 @@ abstract class TestCase extends BaseTestCase
             mkdir($this->testStoragePath.'/'.$dir, 0755, true);
         }
 
-        $_ENV['LARAVEL_STORAGE_PATH'] = $this->testStoragePath;
+        $_ENV['LARAVEL_STORAGE_PATH'] = $_SERVER['LARAVEL_STORAGE_PATH'] = $this->testStoragePath;
+        putenv('LARAVEL_STORAGE_PATH='.$this->testStoragePath);
 
         return parent::createApplication();
     }
@@ -36,9 +37,12 @@ abstract class TestCase extends BaseTestCase
         try {
             parent::tearDown();
         } finally {
-            unset($_ENV['LARAVEL_STORAGE_PATH']);
+            unset($_ENV['LARAVEL_STORAGE_PATH'], $_SERVER['LARAVEL_STORAGE_PATH']);
+            putenv('LARAVEL_STORAGE_PATH');
 
-            (new Filesystem)->deleteDirectory($this->testStoragePath);
+            if (isset($this->testStoragePath)) {
+                (new Filesystem)->deleteDirectory($this->testStoragePath);
+            }
         }
     }
 }
