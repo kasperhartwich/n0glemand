@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 beforeEach(function () {
     config()->set('services.slack.bot_token', 'xoxb-test');
@@ -82,4 +83,57 @@ it('continues on per-channel failure and exits with non-zero', function () {
         ->expectsOutputToContain('#bad')
         ->expectsOutputToContain('Joined: 1, already in: 0, failed: 1')
         ->assertFailed();
+});
+
+it('logs each failed join and a summary line', function () {
+    Log::spy();
+
+    Http::fakeSequence('slack.test/api/conversations.list*')
+        ->push([
+            'ok' => true,
+            'channels' => [
+                ['id' => 'C1', 'name' => 'good'],
+                ['id' => 'C2', 'name' => 'bad'],
+            ],
+            'response_metadata' => ['next_cursor' => ''],
+        ]);
+
+    Http::fakeSequence('slack.test/api/conversations.join')
+        ->push(['ok' => true])
+        ->push(['ok' => false, 'error' => 'channel_not_found']);
+
+    $this->artisan('slack:join-all-public', ['--sleep' => 0])->assertFailed();
+
+    Log::shouldHaveReceived('error')
+        ->withArgs(fn ($message, $context) => $message === 'slack.join_all.failed'
+            && $context['channel'] === 'C2'
+            && str_contains($context['error'], 'channel_not_found'))
+        ->once();
+    Log::shouldHaveReceived('info')
+        ->with('slack.join_all.summary', ['joined' => 1, 'already_in' => 0, 'failed' => 1])
+        ->once();
+});
+
+it('skips channels the list already marks as member without a join call', function () {
+    Http::fakeSequence('slack.test/api/conversations.list*')
+        ->push([
+            'ok' => true,
+            'channels' => [
+                ['id' => 'C1', 'name' => 'general', 'is_member' => true],
+                ['id' => 'C2', 'name' => 'new', 'is_member' => false],
+            ],
+            'response_metadata' => ['next_cursor' => ''],
+        ]);
+
+    Http::fake([
+        'slack.test/api/conversations.join' => Http::response(['ok' => true]),
+    ]);
+
+    $this->artisan('slack:join-all-public', ['--sleep' => 0])
+        ->expectsOutputToContain('already in #general')
+        ->expectsOutputToContain('joined #new')
+        ->expectsOutputToContain('Joined: 1, already in: 1, failed: 0')
+        ->assertSuccessful();
+
+    Http::assertSentCount(2);
 });

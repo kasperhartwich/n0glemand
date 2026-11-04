@@ -6,6 +6,7 @@ use App\Services\Slack\SlackClient;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 #[Signature('slack:join-all-public {--sleep=1 : Seconds to sleep between join calls to respect rate limits}')]
@@ -31,6 +32,13 @@ class JoinAllPublicChannels extends Command
                     continue;
                 }
 
+                if (($channel['is_member'] ?? false) === true) {
+                    $already++;
+                    $this->line("  ∘ already in #{$name}");
+
+                    continue;
+                }
+
                 try {
                     $result = $slack->joinChannel($id);
 
@@ -43,6 +51,11 @@ class JoinAllPublicChannels extends Command
                     }
                 } catch (Throwable $e) {
                     $failed++;
+                    Log::error('slack.join_all.failed', [
+                        'channel' => $id,
+                        'name' => $name,
+                        'error' => $e->getMessage(),
+                    ]);
                     $this->warn("  ✗ #{$name}: {$e->getMessage()}");
                 }
 
@@ -53,6 +66,12 @@ class JoinAllPublicChannels extends Command
 
             $cursor = $page['next_cursor'] !== '' ? $page['next_cursor'] : null;
         } while ($cursor !== null);
+
+        Log::info('slack.join_all.summary', [
+            'joined' => $joined,
+            'already_in' => $already,
+            'failed' => $failed,
+        ]);
 
         $this->newLine();
         $this->info("Joined: {$joined}, already in: {$already}, failed: {$failed}");
