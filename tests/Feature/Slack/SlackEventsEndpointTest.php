@@ -6,6 +6,7 @@ use App\Jobs\Slack\UploadInstagramMediaToThread;
 use App\Services\Slack\SlackEventRouter;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Testing\Fakes\QueueFake;
 use Illuminate\Testing\TestResponse;
 
 beforeEach(function () {
@@ -174,4 +175,45 @@ it('forgets the event id when routing throws, so a Slack retry is routed again',
     expect(fn () => postSlackEvent($payload))->toThrow(RuntimeException::class, 'boom');
 
     postSlackEvent($payload)->assertNoContent();
+});
+
+it('does not dispatch an already queued action twice when a retry follows a partial dispatch', function () {
+    Queue::fake();
+    $fake = Queue::getFacadeRoot();
+    $failSpotify = true;
+
+    $queue = new class($fake, function () use (&$failSpotify) {
+        return $failSpotify;
+    }) extends QueueFake
+    {
+        public function __construct(public QueueFake $inner, public Closure $shouldFail)
+        {
+            parent::__construct(app());
+        }
+
+        public function push($job, $data = '', $queue = null)
+        {
+            if ($job instanceof PostSonglinkToThread && ($this->shouldFail)()) {
+                throw new RuntimeException('redis down');
+            }
+
+            return parent::push($job, $data, $queue);
+        }
+    };
+    Queue::swap($queue);
+    app()->instance('queue', $queue);
+
+    $payload = messageEvent(
+        'IG https://instagram.com/p/XYZ/ and SP https://open.spotify.com/album/abcDEF',
+        eventId: 'Ev-partial',
+    );
+
+    $this->withoutExceptionHandling();
+    expect(fn () => postSlackEvent($payload))->toThrow(RuntimeException::class, 'redis down');
+
+    $failSpotify = false;
+    postSlackEvent($payload)->assertNoContent();
+
+    $queue->assertPushed(UploadInstagramMediaToThread::class, 1);
+    $queue->assertPushed(PostSonglinkToThread::class, 1);
 });

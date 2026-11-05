@@ -25,7 +25,7 @@ class SlackEventRouter
         $event = $payload['event'] ?? [];
 
         match ($event['type'] ?? null) {
-            'message' => $this->routeMessage($event),
+            'message' => $this->routeMessage($event + ['_event_id' => $payload['event_id'] ?? null]),
             'channel_created' => $this->routeChannelCreated($event),
             default => null,
         };

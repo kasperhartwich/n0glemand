@@ -3,11 +3,14 @@
 namespace App\Services\Slack\Handlers;
 
 use App\Jobs\Slack\PostSonglinkToThread;
+use App\Services\Slack\Handlers\Concerns\DispatchesOncePerEvent;
 use App\Services\Slack\Handlers\Contracts\MessageHandler;
 use Illuminate\Support\Collection;
 
 class SpotifyLinkHandler implements MessageHandler
 {
+    use DispatchesOncePerEvent;
+
     public const URL_REGEX = '~(?:https?://open\.spotify\.com/(?:intl-[a-z]{2}/)?(track|album|playlist|episode|show)/([A-Za-z0-9]+)|spotify:(track|album|playlist|episode|show):([A-Za-z0-9]+))~i';
 
     /**
@@ -24,7 +27,7 @@ class SpotifyLinkHandler implements MessageHandler
     public function handle(array $event, string $channel, string $threadTs, string $userId): void
     {
         foreach ($this->extractUrls($event) as $url) {
-            PostSonglinkToThread::dispatch($url, $channel, $threadTs);
+            $this->dispatchOnce($event, 'spotify:'.$url, fn () => PostSonglinkToThread::dispatch($url, $channel, $threadTs));
         }
     }
 

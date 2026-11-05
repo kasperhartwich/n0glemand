@@ -3,11 +3,14 @@
 namespace App\Services\Slack\Handlers;
 
 use App\Jobs\Slack\UploadInstagramMediaToThread;
+use App\Services\Slack\Handlers\Concerns\DispatchesOncePerEvent;
 use App\Services\Slack\Handlers\Contracts\MessageHandler;
 use Illuminate\Support\Collection;
 
 class InstagramLinkHandler implements MessageHandler
 {
+    use DispatchesOncePerEvent;
+
     public const URL_REGEX = '~https?://(?:www\.)?instagram\.com/(?:reel|reels|p|tv)/([A-Za-z0-9_-]+)~i';
 
     /**
@@ -24,7 +27,7 @@ class InstagramLinkHandler implements MessageHandler
     public function handle(array $event, string $channel, string $threadTs, string $userId): void
     {
         foreach ($this->extractUrls($event) as $url) {
-            UploadInstagramMediaToThread::dispatch($url, $channel, $threadTs);
+            $this->dispatchOnce($event, 'ig:'.$url, fn () => UploadInstagramMediaToThread::dispatch($url, $channel, $threadTs));
         }
     }
 
