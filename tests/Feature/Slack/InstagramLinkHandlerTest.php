@@ -216,14 +216,14 @@ it('deletes the cached cookies and re-logs in on retry when yt-dlp reports login
     Http::assertSent(fn (Request $req) => $req->url() === 'https://www.instagram.com/accounts/login/ajax/');
 });
 
-it('fits the worst case of one attempt inside the job timeout, and the timeout below retry_after', function () {
+it('fits the worst case of one attempt inside the job timeout with 30 s to spare, and the timeout below retry_after', function () {
     $ytdlp = 2 * config('services.slack.ytdlp_timeout');
     $logins = 2 * (config('services.instagram.login_lock_wait') + 2 * config('services.instagram.login_timeout'));
     $upload = 10 + config('services.slack.upload_timeout') + 10;
 
     $timeout = (new UploadInstagramMediaToThread('u', 'C1', '1.2'))->timeout;
 
-    expect($ytdlp + $logins + $upload)->toBeLessThan($timeout)
+    expect($ytdlp + $logins + $upload)->toBeLessThanOrEqual($timeout - 30)
         ->and($timeout)->toBeLessThan(config('queue.connections.redis.retry_after'));
 });
 
