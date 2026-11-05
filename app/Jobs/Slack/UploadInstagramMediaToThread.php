@@ -140,7 +140,7 @@ class UploadInstagramMediaToThread implements ShouldQueue
         $command[] = $this->instagramUrl;
 
         return Process::path($tmpDir)
-            ->timeout((int) config('services.slack.ytdlp_timeout', 50))
+            ->timeout((int) config('services.slack.ytdlp_timeout', 40))
             ->run($command);
     }
 

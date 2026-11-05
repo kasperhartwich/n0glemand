@@ -58,7 +58,7 @@ class SlackClient
         try {
             Http::withToken($this->botToken)
                 ->withBody($uploadHandle, 'application/octet-stream')
-                ->timeout((int) config('services.slack.upload_timeout', 50))
+                ->timeout((int) config('services.slack.upload_timeout', 40))
                 ->post($uploadUrl)
                 ->throw();
         } finally {
