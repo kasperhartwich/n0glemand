@@ -11,7 +11,7 @@ class InstagramLinkHandler implements MessageHandler
 {
     use DispatchesOncePerEvent;
 
-    public const URL_REGEX = '~(?<![\w.@/-])(?:https?://)?(?:www\.)?instagram\.com/(reel|reels|p|tv)/([A-Za-z0-9_-]+)~i';
+    public const URL_REGEX = '~(?<![A-Za-z0-9.@/-])(?:https?://)?(?:www\.)?instagram\.com/(reel|reels|p|tv)/([A-Za-z0-9_-]+)~i';
 
     /**
      * @param  array<string, mixed>  $event
