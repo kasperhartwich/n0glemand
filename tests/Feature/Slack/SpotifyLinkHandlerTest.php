@@ -4,7 +4,6 @@ use App\Jobs\Slack\PostSonglinkToThread;
 use App\Services\Slack\Handlers\SpotifyLinkHandler;
 use App\Services\Slack\SlackClient;
 use Illuminate\Http\Client\Request;
-use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 
@@ -20,15 +19,15 @@ it('detects spotify URLs across supported shapes', function (string $text, bool 
 })->with([
     'track' => ['https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT', true],
     'album' => ['https://open.spotify.com/album/2noRn2Aes5aoNVsU6iWThc', true],
-    'playlist' => ['https://open.spotify.com/playlist/37i9dQZEVXbLRQDuF5jeBp', true],
-    'episode' => ['https://open.spotify.com/episode/0Q8Zl83i7WhXsaMAA1a5my', true],
-    'show (podcast)' => ['https://open.spotify.com/show/5as3aKmN2k11yfDDDSrvaZ', true],
+    'playlist (song.link has no page for it)' => ['https://open.spotify.com/playlist/37i9dQZEVXbLRQDuF5jeBp', false],
+    'episode (song.link has no page for it)' => ['https://open.spotify.com/episode/0Q8Zl83i7WhXsaMAA1a5my', false],
+    'show (song.link has no page for it)' => ['https://open.spotify.com/show/5as3aKmN2k11yfDDDSrvaZ', false],
     'intl-en' => ['https://open.spotify.com/intl-en/track/4cOdK2wGLETKBW3PvgPWqT', true],
     'spotify URI' => ['spotify:track:4cOdK2wGLETKBW3PvgPWqT', true],
     'slack-wrapped' => ['<https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT>', true],
     'track with ?si= share param' => ['https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT?si=abc123', true],
     'slack-wrapped with ?si= share param' => ['<https://open.spotify.com/artist/Foo|Artist>', false],
-    'artist (unsupported by Odesli)' => ['https://open.spotify.com/artist/293vC3Y0NqwjW2g3ioBYN0', false],
+    'artist (song.link has no page for it)' => ['https://open.spotify.com/artist/293vC3Y0NqwjW2g3ioBYN0', false],
     'artist with ?si=' => ['https://open.spotify.com/artist/293vC3Y0NqwjW2g3ioBYN0?si=9xFmFcjiQhC4RLMQIbZWpA', false],
     'non-spotify' => ['https://example.com/track/abc', false],
     'no URL' => ['hello there', false],
@@ -53,9 +52,8 @@ it('dispatches a job per unique normalized URL', function () {
     );
 });
 
-it('posts the songlink pageUrl to the thread on success', function () {
+it('posts a song.link page for the Spotify URL to the thread', function () {
     Http::fake([
-        'api.song.link/*' => Http::response(['pageUrl' => 'https://song.link/s/abc']),
         'slack.test/api/chat.postMessage' => Http::response(['ok' => true, 'ts' => '1.1']),
     ]);
 
@@ -67,76 +65,13 @@ it('posts the songlink pageUrl to the thread on success', function () {
 
     $job->handle(app(SlackClient::class));
 
+    Http::assertSentCount(1);
     Http::assertSent(function (Request $request) {
-        if ($request->url() !== 'https://slack.test/api/chat.postMessage') {
-            return false;
-        }
-
         $body = $request->data();
 
-        return ($body['channel'] ?? null) === 'C42'
-            && ($body['text'] ?? null) === 'https://song.link/s/abc'
+        return $request->url() === 'https://slack.test/api/chat.postMessage'
+            && ($body['channel'] ?? null) === 'C42'
+            && ($body['text'] ?? null) === 'https://song.link/https://open.spotify.com/track/xyz'
             && ($body['thread_ts'] ?? null) === '1700000000.000100';
     });
-});
-
-it('silently gives up on songlink 4xx', function () {
-    Http::fake([
-        'api.song.link/*' => Http::response(['error' => 'not found'], 404),
-    ]);
-
-    $job = new PostSonglinkToThread(
-        spotifyUrl: 'https://open.spotify.com/track/xyz',
-        channel: 'C42',
-        threadTs: '1700000000.000100',
-    );
-
-    $job->handle(app(SlackClient::class));
-
-    Http::assertNotSent(
-        fn (Request $request) => str_contains($request->url(), 'slack.test/api/chat.postMessage'),
-    );
-});
-
-it('silently gives up on songlink 405 (the real response for unsupported URL types)', function () {
-    // Matches what song.link returns in production for an artist URL — see
-    // production log `slack.songlink.http_failed {status:405}`.
-    Http::fake([
-        'api.song.link/*' => Http::response('Method Not Allowed', 405),
-    ]);
-
-    $job = new PostSonglinkToThread(
-        spotifyUrl: 'https://open.spotify.com/artist/293vC3Y0NqwjW2g3ioBYN0',
-        channel: 'C42',
-        threadTs: '1700000000.000100',
-    );
-
-    $job->handle(app(SlackClient::class));
-
-    Http::assertNotSent(
-        fn (Request $request) => str_contains($request->url(), 'slack.test/api/chat.postMessage'),
-    );
-});
-
-it('does not retry a songlink 4xx', function () {
-    Http::fake([
-        'api.song.link/*' => Http::response(['error' => 'not found'], 404),
-    ]);
-
-    (new PostSonglinkToThread('https://open.spotify.com/track/xyz', 'C42', '1700000000.000100'))
-        ->handle(app(SlackClient::class));
-
-    Http::assertSentCount(1);
-});
-
-it('retries a songlink 5xx and then rethrows so the queue retries the job', function () {
-    Http::fake([
-        'api.song.link/*' => Http::response('Bad Gateway', 502),
-    ]);
-
-    expect(fn () => (new PostSonglinkToThread('https://open.spotify.com/track/xyz', 'C42', '1700000000.000100'))
-        ->handle(app(SlackClient::class)))
-        ->toThrow(RequestException::class);
-
-    Http::assertSentCount(2);
 });
