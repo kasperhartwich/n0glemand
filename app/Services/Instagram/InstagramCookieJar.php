@@ -48,7 +48,7 @@ class InstagramCookieJar
                 return null;
             }
 
-            return $this->login($credentials) ? $path : null;
+            return $this->login($credentials) === InstagramLoginStatus::Ok ? $path : null;
         });
     }
 
@@ -68,15 +68,49 @@ class InstagramCookieJar
 
     public function refresh(): bool
     {
+        return $this->refreshStatus() === InstagramLoginStatus::Ok;
+    }
+
+    /**
+     * Forces a fresh login. Returns how it went, or null when no credentials
+     * are configured or the login lock stayed taken.
+     */
+    public function refreshStatus(): ?InstagramLoginStatus
+    {
         $credentials = $this->credentials();
 
         if ($credentials === null) {
             Log::warning('instagram.login.missing_credentials');
 
-            return false;
+            return null;
         }
 
-        return $this->withLoginLock(fn (): bool => $this->login($credentials)) ?? false;
+        return $this->withLoginLock(fn (): InstagramLoginStatus => $this->login($credentials));
+    }
+
+    /**
+     * The status of the failed login that started the current cooldown, or
+     * null when no cooldown is active.
+     */
+    public function cooldownStatus(): ?string
+    {
+        $status = Cache::get(self::COOLDOWN_CACHE_KEY);
+
+        return is_string($status) ? $status : null;
+    }
+
+    /**
+     * Age of the cookie file in seconds, or null when there is none.
+     */
+    public function cookiesAgeSeconds(): ?int
+    {
+        $path = $this->cookiesPath();
+
+        if (! is_file($path) || filesize($path) === 0) {
+            return null;
+        }
+
+        return max(0, time() - (int) filemtime($path));
     }
 
     /**
@@ -103,7 +137,7 @@ class InstagramCookieJar
     /**
      * @param  array{username: string, password: string}  $credentials
      */
-    private function login(array $credentials): bool
+    private function login(array $credentials): InstagramLoginStatus
     {
         $result = $this->client->login($credentials['username'], $credentials['password']);
 
@@ -120,14 +154,17 @@ class InstagramCookieJar
                 'message' => $result->errorMessage,
             ]);
 
-            return false;
+            return $result->status === InstagramLoginStatus::Ok
+                ? InstagramLoginStatus::Unknown
+                : $result->status;
         }
 
         $this->writeCookies($result->cookiesTxt);
+        Cache::forget(self::COOLDOWN_CACHE_KEY);
 
         Log::info('instagram.login.ok', ['username' => $credentials['username']]);
 
-        return true;
+        return InstagramLoginStatus::Ok;
     }
 
     /**

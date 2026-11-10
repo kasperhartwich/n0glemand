@@ -12,7 +12,7 @@ What the bot does:
 - **Instagram reel/post/tv URL** in a message: downloads the media with `yt-dlp` and uploads it to the thread. The scheme is optional (`instagram.com/reel/ID` works) and the job gets a canonical `https://www.instagram.com/<type>/<id>/` URL: `/reels/` becomes `/reel/` because yt-dlp rejects `/reels/` as an unsupported URL.
 - **Spotify track or album URL or `spotify:` URI** in a message: posts `https://song.link/<normalised open.spotify.com URL>` in the thread, built locally (song.link's public API now answers 401 `PUBLIC_API_ACCESS_DEPRECATED`, so none is called). Playlists, episodes, shows and artists are ignored: song.link has no page for them.
 - **`channel_created` event**: joins the new public channel.
-- **`/n0glemand` slash command**: `help`, and `logs [N]` (tails the last N lines, default 50, max 200, of the newest `storage/logs/laravel*.log` as an ephemeral reply).
+- **`/n0glemand` slash command**: `help`, `logs [N]` (tails the last N lines, default 50, max 200, of the newest `storage/logs/laravel*.log` as an ephemeral reply), and the admin-only `instagram status` (credentials set, cookie file age, login cooldown; no secrets) and `instagram refresh` (acks at once, queues `RefreshInstagramCookiesFromSlack`, which forces a login and posts the outcome, e.g. `checkpoint_required`, to Slack's `response_url`). Admins are the Slack user IDs in `services.slack.admin_user_ids` (env `SLACK_ADMIN_USER_IDS`, comma separated, default `U0KA85C21`); anyone else gets an ephemeral refusal.
 
 ## Structure
 

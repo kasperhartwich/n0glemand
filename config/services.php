@@ -44,6 +44,10 @@ return [
         'upload_timeout' => 40,
         'ig_download_max_age' => 60 * 60,
         'ytdlp_cookies' => env('YTDLP_COOKIES_PATH'),
+        'admin_user_ids' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env('SLACK_ADMIN_USER_IDS', 'U0KA85C21')),
+        ))),
     ],
 
     'instagram' => [
