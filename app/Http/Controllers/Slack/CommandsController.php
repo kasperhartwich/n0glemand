@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Slack;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\Slack\CheckInstagramFromSlack;
 use App\Jobs\Slack\RefreshInstagramCookiesFromSlack;
 use App\Services\Instagram\InstagramCookieJar;
 use Illuminate\Http\JsonResponse;
@@ -57,6 +58,7 @@ class CommandsController extends Controller
             '*n0glemand commands*',
             '• `/n0glemand logs [N]`: tail the last N lines (default 50, max 200) of `laravel.log`',
             '• `/n0glemand instagram status` (admins only): cookie file age and login cooldown',
+            '• `/n0glemand instagram check` (admins only): check that Instagram still accepts the cookies',
             '• `/n0glemand instagram refresh` (admins only): force a fresh Instagram login',
             '• `/n0glemand help`: show this message',
             '',
@@ -84,8 +86,9 @@ class CommandsController extends Controller
 
         return match ($action) {
             'status' => $this->instagramStatus(app(InstagramCookieJar::class)),
+            'check' => $this->instagramCheck((string) $request->input('response_url', '')),
             'refresh' => $this->instagramRefresh((string) $request->input('response_url', '')),
-            default => $this->ephemeral('Usage: `/n0glemand instagram status` or `/n0glemand instagram refresh`.'),
+            default => $this->ephemeral('Usage: `/n0glemand instagram status`, `instagram check` or `instagram refresh`.'),
         };
     }
 
@@ -105,6 +108,17 @@ class CommandsController extends Controller
         ];
 
         return $this->ephemeral(implode("\n", $lines));
+    }
+
+    protected function instagramCheck(string $responseUrl): JsonResponse
+    {
+        if ($responseUrl === '') {
+            return $this->ephemeral('Slack sent no `response_url`, so the result cannot be posted back.');
+        }
+
+        CheckInstagramFromSlack::dispatch($responseUrl);
+
+        return $this->ephemeral(':hourglass_flowing_sand: Checking the Instagram cookies, the result follows here.');
     }
 
     protected function instagramRefresh(string $responseUrl): JsonResponse

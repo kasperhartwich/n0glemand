@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\Slack\CheckInstagramFromSlack;
 use App\Jobs\Slack\RefreshInstagramCookiesFromSlack;
 use App\Services\Instagram\InstagramCookieJar;
 use Illuminate\Support\Facades\Cache;
@@ -52,7 +53,7 @@ it('refuses instagram commands for users who are not admins', function (string $
         ->assertJsonPath('text', 'Only n0glemand admins can run `instagram` commands.');
 
     Queue::assertNothingPushed();
-})->with(['instagram refresh', 'instagram status']);
+})->with(['instagram refresh', 'instagram status', 'instagram check']);
 
 it('queues a refresh for an admin and answers at once', function () {
     Queue::fake();
@@ -61,6 +62,17 @@ it('queues a refresh for an admin and answers at once', function () {
 
     Queue::assertPushed(
         RefreshInstagramCookiesFromSlack::class,
+        fn ($job) => $job->responseUrl === 'https://hooks.slack.test/response/abc',
+    );
+});
+
+it('queues a check for an admin and answers at once', function () {
+    Queue::fake();
+
+    postInstagramCommand('instagram check')->assertOk();
+
+    Queue::assertPushed(
+        CheckInstagramFromSlack::class,
         fn ($job) => $job->responseUrl === 'https://hooks.slack.test/response/abc',
     );
 });
@@ -133,7 +145,7 @@ it('reports cookie age and an active cooldown without secrets', function () {
 
 it('shows usage for an unknown instagram action and lists the commands in help', function () {
     expect(postInstagramCommand('instagram nope')->json('text'))->toContain('Usage:');
-    expect(postInstagramCommand('help')->json('text'))->toContain('instagram refresh');
+    expect(postInstagramCommand('help')->json('text'))->toContain('instagram refresh')->toContain('instagram check');
 });
 
 it('tells the admin when another login holds the lock', function () {

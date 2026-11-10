@@ -6,6 +6,10 @@ features:
   bot_user:
     display_name: n0glemand
     always_online: true
+  app_home:
+    home_tab_enabled: false
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: true
   slash_commands:
     - command: /n0glemand
       url: https://REPLACE-ME.example.com/slack/commands
