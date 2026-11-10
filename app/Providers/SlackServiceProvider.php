@@ -4,8 +4,8 @@ namespace App\Providers;
 
 use App\Services\Slack\AdminDirectMessages;
 use App\Services\Slack\Handlers\InstagramLinkHandler;
+use App\Services\Slack\Handlers\MusicLinkHandler;
 use App\Services\Slack\Handlers\PingHandler;
-use App\Services\Slack\Handlers\SpotifyLinkHandler;
 use App\Services\Slack\SlackClient;
 use App\Services\Slack\SlackEventRouter;
 use Illuminate\Contracts\Foundation\Application;
@@ -23,7 +23,7 @@ class SlackServiceProvider extends ServiceProvider
         $this->app->tag([
             PingHandler::class,
             InstagramLinkHandler::class,
-            SpotifyLinkHandler::class,
+            MusicLinkHandler::class,
         ], 'slack.handlers');
 
         $this->app->bind(

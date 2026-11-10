@@ -66,7 +66,7 @@ class CommandsController extends Controller
             '*In-channel (no slash command):*',
             '• Send `ping`: quick liveness check (bot replies `pong`)',
             '• Paste an Instagram reel/post URL: the bot downloads the video and posts it in-thread',
-            '• Paste a Spotify URL: the bot replies in-thread with a song.link URL (tracks and albums)',
+            '• Paste a track or album link (Spotify, Apple Music, YouTube Music, Tidal, Deezer, Amazon Music, SoundCloud): the bot replies in-thread with song.link URLs',
         ];
 
         return $this->ephemeral(implode("\n", $lines));

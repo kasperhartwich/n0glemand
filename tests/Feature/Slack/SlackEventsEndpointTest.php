@@ -116,7 +116,7 @@ it('dispatches songlink job for Spotify link', function () {
     postSlackEvent(messageEvent('<https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT>', eventId: 'Ev-sp'))
         ->assertNoContent();
 
-    Queue::assertPushed(PostSonglinkToThread::class, fn ($job) => $job->spotifyUrl === 'https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT'
+    Queue::assertPushed(PostSonglinkToThread::class, fn ($job) => $job->urls === ['https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT']
         && $job->channel === 'C123'
         && $job->threadTs === '1700000000.000100',
     );

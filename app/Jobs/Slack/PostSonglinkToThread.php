@@ -16,8 +16,11 @@ class PostSonglinkToThread implements ShouldQueue
 
     public int $timeout = 20;
 
+    /**
+     * @param  array<int, string>  $urls  Canonical music URLs, one song.link line each.
+     */
     public function __construct(
-        public string $spotifyUrl,
+        public array $urls,
         public string $channel,
         public string $threadTs,
     ) {}
@@ -32,13 +35,17 @@ class PostSonglinkToThread implements ShouldQueue
 
     public function handle(SlackClient $slack): void
     {
-        $slack->postMessage($this->channel, 'https://song.link/'.$this->spotifyUrl, $this->threadTs);
+        $text = collect($this->urls)
+            ->map(fn (string $url): string => 'https://song.link/'.$url)
+            ->implode("\n");
+
+        $slack->postMessage($this->channel, $text, $this->threadTs);
     }
 
     public function failed(Throwable $e): void
     {
         Log::error('slack.songlink.job_failed', [
-            'url' => $this->spotifyUrl,
+            'urls' => $this->urls,
             'exception' => $e->getMessage(),
         ]);
     }
