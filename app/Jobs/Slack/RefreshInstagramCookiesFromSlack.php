@@ -22,6 +22,14 @@ class RefreshInstagramCookiesFromSlack implements ShouldQueue
         public string $responseUrl,
     ) {}
 
+    /**
+     * @return array<int, int>
+     */
+    public function backoff(): array
+    {
+        return [0];
+    }
+
     public function handle(InstagramCookieJar $jar): void
     {
         $this->reply($this->outcome($jar));

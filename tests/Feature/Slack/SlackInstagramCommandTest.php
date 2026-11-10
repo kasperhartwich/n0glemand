@@ -135,3 +135,18 @@ it('shows usage for an unknown instagram action and lists the commands in help',
     expect(postInstagramCommand('instagram nope')->json('text'))->toContain('Usage:');
     expect(postInstagramCommand('help')->json('text'))->toContain('instagram refresh');
 });
+
+it('tells the admin when another login holds the lock', function () {
+    config()->set('services.instagram.login_lock_wait', 0);
+    Http::fake(['https://hooks.slack.test/*' => Http::response('ok')]);
+
+    $lock = Cache::lock('ig:login', 60);
+    $lock->get();
+
+    postInstagramCommand('instagram refresh')->assertOk();
+
+    $lock->release();
+
+    Http::assertSent(fn ($request) => $request->url() === 'https://hooks.slack.test/response/abc'
+        && str_contains($request['text'], 'already running'));
+});
