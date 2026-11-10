@@ -11,7 +11,7 @@ class InstagramLinkHandler implements MessageHandler
 {
     use DispatchesOncePerEvent;
 
-    public const URL_REGEX = '~https?://(?:www\.)?instagram\.com/(?:reel|reels|p|tv)/([A-Za-z0-9_-]+)~i';
+    public const URL_REGEX = '~(?<![\w.@/-])(?:https?://)?(?:www\.)?instagram\.com/(reel|reels|p|tv)/([A-Za-z0-9_-]+)~i';
 
     /**
      * @param  array<string, mixed>  $event
@@ -42,9 +42,19 @@ class InstagramLinkHandler implements MessageHandler
         preg_match_all(self::URL_REGEX, $text, $matches, PREG_SET_ORDER);
 
         return collect($matches)
-            ->unique(fn (array $m) => $m[1])
-            ->map(fn (array $m) => $m[0])
+            ->unique(fn (array $m) => $m[2])
+            ->map(fn (array $m) => $this->canonicalUrl($m[1], $m[2]))
             ->values();
+    }
+
+    /**
+     * yt-dlp only knows /reel/, not Instagram's /reels/ alias, and needs a scheme.
+     */
+    protected function canonicalUrl(string $type, string $shortcode): string
+    {
+        $type = strtolower($type);
+
+        return 'https://www.instagram.com/'.($type === 'reels' ? 'reel' : $type).'/'.$shortcode.'/';
     }
 
     protected function stripSlackLinkBrackets(string $text): string

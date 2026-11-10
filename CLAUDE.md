@@ -9,7 +9,7 @@ n0glemand is a Slack bot built on Laravel 13 (PHP 8.4). It has no user-facing we
 What the bot does:
 
 - **`ping`** in a channel: replies `pong` in the thread.
-- **Instagram reel/post/tv URL** in a message: downloads the media with `yt-dlp` and uploads it to the thread.
+- **Instagram reel/post/tv URL** in a message: downloads the media with `yt-dlp` and uploads it to the thread The scheme is optional (`instagram.com/reel/ID` works) and the job gets a canonical `https://www.instagram.com/<type>/<id>/` URL: `/reels/` becomes `/reel/` because yt-dlp rejects `/reels/` as an unsupported URL.
 - **Spotify track or album URL or `spotify:` URI** in a message: posts `https://song.link/<normalised open.spotify.com URL>` in the thread, built locally (song.link's public API now answers 401 `PUBLIC_API_ACCESS_DEPRECATED`, so none is called). Playlists, episodes, shows and artists are ignored: song.link has no page for them.
 - **`channel_created` event**: joins the new public channel.
 - **`/n0glemand` slash command**: `help`, and `logs [N]` (tails the last N lines, default 50, max 200, of the newest `storage/logs/laravel*.log` as an ephemeral reply).

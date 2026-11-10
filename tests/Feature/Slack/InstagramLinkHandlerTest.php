@@ -39,6 +39,9 @@ it('detects instagram URLs across supported shapes', function (string $text, boo
     'slack-wrapped' => ['<https://www.instagram.com/reel/ABC/|Instagram>', true],
     'reel with ?igsh= share param' => ['https://www.instagram.com/reel/DXJYt_4DW-y/?igsh=c3NlNTI3OGgycnhi', true],
     'slack-wrapped with ?igsh= share param' => ['<https://www.instagram.com/reel/DXJYt_4DW-y/?igsh=c3NlNTI3OGgycnhi>', true],
+    'scheme-less reels' => ['instagram.com/reels/DfjiO_fCeaq', true],
+    'scheme-less with www' => ['look www.instagram.com/p/Cabc123_-/', true],
+    'lookalike host' => ['notinstagram.com/reel/abc', false],
     'non-ig' => ['https://example.com/reel/abc', false],
     'ig stories (unsupported)' => ['https://instagram.com/stories/someone/1234', false],
     'no URL' => ['hi', false],
@@ -249,3 +252,19 @@ it('treats shortcodes that differ only in case as different posts', function () 
 
     Queue::assertPushed(UploadInstagramMediaToThread::class, 2);
 });
+
+it('hands yt-dlp a /reel/ URL for a /reels/ input, with or without a scheme', function (string $text, string $expected) {
+    Queue::fake();
+
+    app(InstagramLinkHandler::class)->handle(['text' => $text], channel: 'C1', threadTs: '111.222', userId: 'U1');
+
+    Queue::assertPushed(
+        UploadInstagramMediaToThread::class,
+        fn (UploadInstagramMediaToThread $job) => $job->instagramUrl === $expected,
+    );
+})->with([
+    'reels with scheme' => ['https://www.instagram.com/reels/DfjiO_fCeaq', 'https://www.instagram.com/reel/DfjiO_fCeaq/'],
+    'reels without scheme' => ['instagram.com/reels/DfjiO_fCeaq', 'https://www.instagram.com/reel/DfjiO_fCeaq/'],
+    'reels with share param' => ['<https://www.instagram.com/reels/DfjiO_fCeaq/?igsh=abc>', 'https://www.instagram.com/reel/DfjiO_fCeaq/'],
+    'post keeps its type' => ['https://instagram.com/p/Cabc123/', 'https://www.instagram.com/p/Cabc123/'],
+]);
