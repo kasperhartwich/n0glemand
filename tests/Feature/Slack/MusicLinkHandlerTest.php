@@ -101,6 +101,12 @@ it('ignores links that song.link cannot resolve and lookalikes', function (strin
     'soundcloud stations' => 'https://soundcloud.com/stations/track/foo',
     'soundcloud private link (secret token would be lost)' => 'https://soundcloud.com/rick-astley-official/never-gonna-give-you-up-4/s-AbCd1234',
     'amazon unknown tld' => 'https://music.amazon.xyz/albums/B07FSXMG6Q',
+    'url embedded after ?' => '<https://example.com/?https://tidal.com/track/55130631>',
+    'url embedded after #' => 'https://example.com/x#https://tidal.com/track/55130631',
+    'url embedded after &' => 'https://example.com/x?a=1&https://tidal.com/track/55130631',
+    'over-long tidal id' => 'https://tidal.com/browse/track/55130631abc',
+    'over-long amazon asin' => 'https://music.amazon.com/albums/B07FSXMG6QZ',
+    'over-long apple id' => 'https://music.apple.com/us/album/1441164426abc',
     'non-music' => 'https://example.com/track/abc',
     'no URL' => 'hello there',
 ]);

@@ -22,9 +22,9 @@ class MusicLinkHandler implements MessageHandler
      * so a song.link URL that wraps a service URL, or a redirect URL that
      * carries one in a parameter, is not matched.
      */
-    private const START = '(?<![A-Za-z0-9\/=.-])https?://';
+    private const START = '(?<![A-Za-z0-9\/=.?#&-])https?://';
 
-    private const SPOTIFY = '~(?<![A-Za-z0-9:\/=.-])(?:https?://open\.spotify\.com/(?:intl-[a-z]{2}/)?(track|album)/([A-Za-z0-9]+)|spotify:(track|album):([A-Za-z0-9]+))~i';
+    private const SPOTIFY = '~(?<![A-Za-z0-9\/=.?#&-])(?:https?://open\.spotify\.com/(?:intl-[a-z]{2}/)?(track|album)/([A-Za-z0-9]+)|spotify:(track|album):([A-Za-z0-9]+))~i';
 
     private const SOUNDCLOUD_RESERVED_USER = 'discover|you|stream|upload|search|charts|settings|pages|terms-of-use|jobs|messages|notifications|feed|tags|popular|people|stations|creators|mobile';
 
@@ -107,7 +107,7 @@ class MusicLinkHandler implements MessageHandler
                 },
             ],
             'apple' => [
-                'regex' => "~{$start}(?:geo\\.)?music\\.apple\\.com/([a-z]{2})/(album|song)/(?:[^/?#\\s]+/)?(\\d+)(?:\\?([^\\s#]*))?~i",
+                'regex' => "~{$start}(?:geo\\.)?music\\.apple\\.com/([a-z]{2})/(album|song)/(?:[^/?#\\s]+/)?(\\d+)(?![A-Za-z0-9])(?:\\?([^\\s#]*))?~i",
                 'normalise' => function (array $m): string {
                     $url = 'https://music.apple.com/'.strtolower($m[1]).'/'.strtolower($m[2]).'/'.$m[3];
 
@@ -123,15 +123,15 @@ class MusicLinkHandler implements MessageHandler
                 'normalise' => fn (array $m): string => 'https://music.youtube.com/watch?v='.$m[1],
             ],
             'tidal' => [
-                'regex' => "~{$start}(?:listen\\.|www\\.)?tidal\\.com/(?:browse/)?(track|album)/(\\d+)~i",
+                'regex' => "~{$start}(?:listen\\.|www\\.)?tidal\\.com/(?:browse/)?(track|album)/(\\d+)(?![A-Za-z0-9])~i",
                 'normalise' => fn (array $m): string => 'https://tidal.com/'.strtolower($m[1]).'/'.$m[2],
             ],
             'deezer' => [
-                'regex' => "~{$start}(?:www\\.)?deezer\\.com/(?:[a-z]{2}/)?(track|album)/(\\d+)~i",
+                'regex' => "~{$start}(?:www\\.)?deezer\\.com/(?:[a-z]{2}/)?(track|album)/(\\d+)(?![A-Za-z0-9])~i",
                 'normalise' => fn (array $m): string => 'https://www.deezer.com/'.strtolower($m[1]).'/'.$m[2],
             ],
             'amazon' => [
-                'regex' => "~{$start}music\\.amazon\\.(?:com|co\\.uk|de|fr|es|it|co\\.jp|com\\.au|ca|in|com\\.br|com\\.mx)/(albums|tracks)/(B0[0-9A-Z]{8})(?:\\?([^\\s#]*))?~i",
+                'regex' => "~{$start}music\\.amazon\\.(?:com|co\\.uk|de|fr|es|it|co\\.jp|com\\.au|ca|in|com\\.br|com\\.mx)/(albums|tracks)/(B0[0-9A-Z]{8})(?![A-Za-z0-9])(?:\\?([^\\s#]*))?~i",
                 'normalise' => function (array $m): string {
                     $type = strtolower($m[1]);
                     $url = "https://music.amazon.com/{$type}/".strtoupper($m[2]);
