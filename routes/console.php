@@ -15,7 +15,7 @@ Schedule::command('slack:join-all-public --sleep=1')
     ->withoutOverlapping(120)
     ->runInBackground();
 Schedule::command('instagram:check --notify')
-    ->dailyAt('08:00')
+    ->dailyAt('09:00')
     ->timezone('Europe/Copenhagen')
     ->onOneServer()
     ->withoutOverlapping(10);

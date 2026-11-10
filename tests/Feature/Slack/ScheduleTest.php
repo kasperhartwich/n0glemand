@@ -19,11 +19,11 @@ it('schedules the join-all-public safety net daily without overlap', function ()
         ->and($event->command)->toContain('--sleep=1');
 });
 
-it('schedules the instagram check daily at 08:00 Copenhagen time on one server', function () {
+it('schedules the instagram check daily at 09:00 Copenhagen time on one server', function () {
     $event = scheduledEvent('instagram:check');
 
     expect($event)->not->toBeNull()
-        ->and($event->expression)->toBe('0 8 * * *')
+        ->and($event->expression)->toBe('0 9 * * *')
         ->and($event->timezone)->toBe('Europe/Copenhagen')
         ->and($event->onOneServer)->toBeTrue()
         ->and($event->withoutOverlapping)->toBeTrue()
