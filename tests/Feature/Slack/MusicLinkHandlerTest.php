@@ -57,6 +57,10 @@ it('normalises resolvable links of every service', function (string $text, strin
     'soundcloud mobile host' => ['https://m.soundcloud.com/rick-astley-official/never-gonna-give-you-up-4', 'https://soundcloud.com/rick-astley-official/never-gonna-give-you-up-4'],
     'slack-wrapped with label' => ['<https://music.apple.com/us/album/x/1441164426?i=1441164430|Come Together>', 'https://music.apple.com/us/album/1441164426?i=1441164430'],
     'slack-escaped ampersand' => ['<https://music.youtube.com/watch?si=a&amp;v=dQw4w9WgXcQ>', 'https://music.youtube.com/watch?v=dQw4w9WgXcQ'],
+    'italic slack link (tidal)' => ['_<https://tidal.com/track/55130631>_', 'https://tidal.com/track/55130631'],
+    'italic slack link (spotify)' => ['_<https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT>_', 'https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT'],
+    'italic slack link (soundcloud)' => ['_<https://soundcloud.com/rick-astley-official/never-gonna-give-you-up-4>_', 'https://soundcloud.com/rick-astley-official/never-gonna-give-you-up-4'],
+    'bold slack link (youtube music)' => ['*<https://music.youtube.com/watch?v=dQw4w9WgXcQ>*', 'https://music.youtube.com/watch?v=dQw4w9WgXcQ'],
     'in a sentence with a closing bracket' => ['listen (https://tidal.com/browse/track/55130631) now', 'https://tidal.com/track/55130631'],
 ]);
 
@@ -94,6 +98,9 @@ it('ignores links that song.link cannot resolve and lookalikes', function (strin
     'lookalike deezer' => 'https://deezer.com.evil.example/track/3135556',
     'lookalike amazon' => 'https://music.amazon.com.evil.example/albums/B07FSXMG6Q',
     'lookalike soundcloud' => 'https://soundcloud.com.evil.example/a/b',
+    'soundcloud stations' => 'https://soundcloud.com/stations/track/foo',
+    'soundcloud private link (secret token would be lost)' => 'https://soundcloud.com/rick-astley-official/never-gonna-give-you-up-4/s-AbCd1234',
+    'amazon unknown tld' => 'https://music.amazon.xyz/albums/B07FSXMG6Q',
     'non-music' => 'https://example.com/track/abc',
     'no URL' => 'hello there',
 ]);

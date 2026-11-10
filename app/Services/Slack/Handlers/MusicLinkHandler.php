@@ -22,11 +22,11 @@ class MusicLinkHandler implements MessageHandler
      * so a song.link URL that wraps a service URL, or a redirect URL that
      * carries one in a parameter, is not matched.
      */
-    private const START = '(?<![A-Za-z0-9_\/=.-])https?://';
+    private const START = '(?<![A-Za-z0-9\/=.-])https?://';
 
-    private const SPOTIFY = '~(?<![A-Za-z0-9_:\/=.-])(?:https?://open\.spotify\.com/(?:intl-[a-z]{2}/)?(track|album)/([A-Za-z0-9]+)|spotify:(track|album):([A-Za-z0-9]+))~i';
+    private const SPOTIFY = '~(?<![A-Za-z0-9:\/=.-])(?:https?://open\.spotify\.com/(?:intl-[a-z]{2}/)?(track|album)/([A-Za-z0-9]+)|spotify:(track|album):([A-Za-z0-9]+))~i';
 
-    private const SOUNDCLOUD_RESERVED_USER = 'discover|you|stream|upload|search|charts|settings|pages|terms-of-use|jobs|messages|notifications|feed|tags|popular|people';
+    private const SOUNDCLOUD_RESERVED_USER = 'discover|you|stream|upload|search|charts|settings|pages|terms-of-use|jobs|messages|notifications|feed|tags|popular|people|stations|creators|mobile';
 
     private const SOUNDCLOUD_RESERVED_ITEM = 'tracks|albums|sets|likes|reposts|popular-tracks|following|followers|comments|spotlight|playlists';
 
@@ -131,7 +131,7 @@ class MusicLinkHandler implements MessageHandler
                 'normalise' => fn (array $m): string => 'https://www.deezer.com/'.strtolower($m[1]).'/'.$m[2],
             ],
             'amazon' => [
-                'regex' => "~{$start}music\\.amazon\\.[a-z]{2,3}(?:\\.[a-z]{2})?/(albums|tracks)/(B0[0-9A-Z]{8})(?:\\?([^\\s#]*))?~i",
+                'regex' => "~{$start}music\\.amazon\\.(?:com|co\\.uk|de|fr|es|it|co\\.jp|com\\.au|ca|in|com\\.br|com\\.mx)/(albums|tracks)/(B0[0-9A-Z]{8})(?:\\?([^\\s#]*))?~i",
                 'normalise' => function (array $m): string {
                     $type = strtolower($m[1]);
                     $url = "https://music.amazon.com/{$type}/".strtoupper($m[2]);
@@ -144,18 +144,18 @@ class MusicLinkHandler implements MessageHandler
                 },
             ],
             'soundcloud' => [
-                'regex' => "~{$start}(?:www\\.|m\\.)?soundcloud\\.com/(?!(?:".self::SOUNDCLOUD_RESERVED_USER.")/)([A-Za-z0-9_-]+)/(sets/)?(?!(?:".self::SOUNDCLOUD_RESERVED_ITEM.")(?![A-Za-z0-9_-]))([A-Za-z0-9_-]+)~i",
+                'regex' => "~{$start}(?:www\\.|m\\.)?soundcloud\\.com/(?!(?:".self::SOUNDCLOUD_RESERVED_USER.')/)([A-Za-z0-9_-]+)/(sets/)?(?!(?:'.self::SOUNDCLOUD_RESERVED_ITEM.')(?![A-Za-z0-9_-]))([A-Za-z0-9_-]++)(?!/s-)~i',
                 'normalise' => fn (array $m): string => 'https://soundcloud.com/'.$m[1].'/'.strtolower($m[2] ?? '').$m[3],
             ],
         ];
     }
 
     /**
-     * Unwrap Slack's <url|label> syntax and decode the &amp; it escapes in URLs.
+     * Unwrap Slack's <url|label> syntax (padded with spaces so italic or bold markers around a link do not stick to it) and decode the &amp; it escapes in URLs.
      */
     protected function stripSlackLinkBrackets(string $text): string
     {
-        $text = (string) preg_replace('/<(https?:\/\/[^|>]+|spotify:[^|>]+)(?:\|[^>]*)?>/i', '$1', $text);
+        $text = (string) preg_replace('/<(https?:\/\/[^|>]+|spotify:[^|>]+)(?:\|[^>]*)?>/i', ' $1 ', $text);
 
         return str_replace('&amp;', '&', $text);
     }
