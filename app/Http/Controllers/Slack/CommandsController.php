@@ -56,8 +56,8 @@ class CommandsController extends Controller
         $lines = [
             '*n0glemand commands*',
             '• `/n0glemand logs [N]`: tail the last N lines (default 50, max 200) of `laravel.log`',
-            '• `/n0glemand instagram status`: admins only: cookie file age and login cooldown',
-            '• `/n0glemand instagram refresh`: admins only: force a fresh Instagram login',
+            '• `/n0glemand instagram status` (admins only): cookie file age and login cooldown',
+            '• `/n0glemand instagram refresh` (admins only): force a fresh Instagram login',
             '• `/n0glemand help`: show this message',
             '',
             '*In-channel (no slash command):*',
