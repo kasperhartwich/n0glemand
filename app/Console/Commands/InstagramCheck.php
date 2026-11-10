@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Services\Instagram\InstagramCheckResult;
+use App\Services\Instagram\InstagramCheckStatus;
 use App\Services\Instagram\InstagramSessionCheck;
 use App\Services\Slack\SlackClient;
 use Illuminate\Console\Attributes\Description;
@@ -36,8 +37,10 @@ class InstagramCheck extends Command
 
     private function notifyAdmins(SlackClient $slack, InstagramCheckResult $result): void
     {
-        $text = ":x: *Instagram check failed* (`{$result->status->value}`)\n{$result->message}\n"
-            .'Fix: run `/n0glemand instagram refresh`, or export fresh cookies to the cookie file on the server.';
+        $hint = $result->status === InstagramCheckStatus::Inconclusive
+            ? 'Probably a blip: run `/n0glemand instagram check` again later.'
+            : 'Fix: run `/n0glemand instagram refresh`, or export fresh cookies to the cookie file on the server.';
+        $text = ":x: *Instagram check failed* (`{$result->status->value}`)\n{$result->message}\n{$hint}";
 
         foreach ((array) config('services.slack.admin_user_ids', []) as $adminId) {
             try {

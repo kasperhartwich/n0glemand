@@ -16,8 +16,9 @@ beforeEach(function () {
     Cache::flush();
     Log::spy();
 
-    config()->set('services.instagram.username', null);
-    config()->set('services.instagram.password', null);
+    config()->set('services.instagram.username', 'kasper');
+    config()->set('services.instagram.password', 'pw');
+    config()->set('services.instagram.cookies_ttl', 86400);
     config()->set('services.slack.ytdlp_cookies', null);
     config()->set('services.slack.admin_user_ids', ['UADMIN1', 'UADMIN2']);
     config()->set('services.slack.bot_token', 'xoxb-test');
@@ -96,6 +97,8 @@ it('fails without a request when the sessionid has expired', function () {
 });
 
 it('falls back to the exported cookie file from YTDLP_COOKIES_PATH', function () {
+    config()->set('services.instagram.username', null);
+    config()->set('services.instagram.password', null);
     $exported = tempnam(sys_get_temp_dir(), 'ig');
     File::put($exported, ".instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\tEXPORTED\n");
     config()->set('services.slack.ytdlp_cookies', $exported);
@@ -109,6 +112,8 @@ it('falls back to the exported cookie file from YTDLP_COOKIES_PATH', function ()
 });
 
 it('reports no cookies when there is no file and no credentials', function () {
+    config()->set('services.instagram.username', null);
+    config()->set('services.instagram.password', null);
     Http::fake();
 
     expect(app(InstagramSessionCheck::class)->run()->status)->toBe(InstagramCheckStatus::NoCookies);
@@ -197,4 +202,80 @@ it('posts the check result to the response url from the slack job', function () 
 
     Http::assertSent(fn ($request) => $request->url() === 'https://hooks.slack.test/response/abc'
         && str_contains($request['text'], 'cookies_invalid'));
+});
+
+it('without credentials checks only the exported file, not a leftover jar file', function () {
+    config()->set('services.instagram.username', null);
+    config()->set('services.instagram.password', null);
+    writeCookieFile();
+    $exported = tempnam(sys_get_temp_dir(), 'ig');
+    File::put($exported, ".instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\tEXPORTED\n");
+    config()->set('services.slack.ytdlp_cookies', $exported);
+    Http::fake([CURRENT_USER => Http::response('', 401)]);
+
+    $result = app(InstagramSessionCheck::class)->run();
+    File::delete($exported);
+
+    expect($result->status)->toBe(InstagramCheckStatus::CookiesInvalid);
+    Http::assertSent(fn ($request) => str_contains($request->header('Cookie')[0], 'EXPORTED')
+        && ! str_contains($request->header('Cookie')[0], 'SESSION123'));
+});
+
+it('without credentials and without an exported file reports no cookies despite a leftover jar file', function () {
+    config()->set('services.instagram.username', null);
+    config()->set('services.instagram.password', null);
+    writeCookieFile();
+    Http::fake();
+
+    expect(app(InstagramSessionCheck::class)->run()->status)->toBe(InstagramCheckStatus::NoCookies);
+    Http::assertNothingSent();
+});
+
+it('with credentials treats a stale jar file as missing and logs in like the job', function () {
+    config()->set('services.instagram.username', 'kasper');
+    config()->set('services.instagram.password', 'pw');
+    config()->set('services.instagram.cookies_ttl', 3600);
+    touch(writeCookieFile(), time() - 7200);
+    Http::fake([
+        'https://www.instagram.com/accounts/login/' => Http::response('', 200, [
+            'Set-Cookie' => ['csrftoken=tok; Path=/; Domain=.instagram.com'],
+        ]),
+        'https://www.instagram.com/accounts/login/ajax/' => Http::response(
+            ['authenticated' => true, 'user' => true],
+            200,
+            ['Set-Cookie' => ['sessionid=FRESH; Path=/; Domain=.instagram.com']],
+        ),
+    ]);
+
+    expect(app(InstagramSessionCheck::class)->run()->isOk())->toBeTrue();
+    Http::assertNotSent(fn ($request) => str_contains($request->url(), 'current_user'));
+});
+
+it('with credentials ignores the exported file and logs in when the jar has none', function () {
+    config()->set('services.instagram.username', 'kasper');
+    config()->set('services.instagram.password', 'pw');
+    $exported = tempnam(sys_get_temp_dir(), 'ig');
+    File::put($exported, ".instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\tEXPORTED\n");
+    config()->set('services.slack.ytdlp_cookies', $exported);
+    Http::fake(['https://www.instagram.com/accounts/login/' => Http::response('', 500)]);
+
+    $result = app(InstagramSessionCheck::class)->run();
+    File::delete($exported);
+
+    expect($result->status)->toBe(InstagramCheckStatus::LoginFailed);
+    Http::assertNotSent(fn ($request) => str_contains($request->url(), 'current_user'));
+});
+
+it('tells the admin to retry the check, not to refresh, when the result is inconclusive', function () {
+    writeCookieFile();
+    Http::fake([
+        CURRENT_USER => Http::response('', 500),
+        'https://slack.com/api/chat.postMessage' => Http::response(['ok' => true]),
+    ]);
+
+    $this->artisan('instagram:check --notify')->assertFailed();
+
+    Http::assertSent(fn ($request) => str_contains($request->url(), 'chat.postMessage')
+        && str_contains($request['text'], '/n0glemand instagram check')
+        && ! str_contains($request['text'], 'instagram refresh'));
 });

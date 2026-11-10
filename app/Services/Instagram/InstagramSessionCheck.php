@@ -13,7 +13,8 @@ use Throwable;
  * It sends one authenticated request with the cookie file as it is, rather
  * than logging in: a daily forced login risks a checkpoint, and production
  * may run on an exported cookie file it cannot recreate. A login is tried
- * only when there is no cookie file at all and credentials are set.
+ * only when credentials are set and the jar has no fresh cookie file, which
+ * is when the download job would log in too.
  */
 class InstagramSessionCheck
 {
@@ -149,18 +150,24 @@ class InstagramSessionCheck
     }
 
     /**
-     * The cookie file yt-dlp would use: the one the login wrote, else the
-     * exported one from YTDLP_COOKIES_PATH.
+     * The cookie file the download job would use. With credentials that is
+     * the jar's own file, and a missing or stale one (older than
+     * INSTAGRAM_COOKIES_TTL) means the job logs in, so null here. Without
+     * credentials it is only the exported file from YTDLP_COOKIES_PATH, and
+     * a leftover jar file is ignored.
      */
     private function cookieFile(): ?string
     {
-        foreach ([$this->jar->cookiesPath(), (string) config('services.slack.ytdlp_cookies', '')] as $path) {
-            if ($path !== '' && is_file($path) && filesize($path) > 0) {
-                return $path;
-            }
+        if ($this->jar->credentials() !== null) {
+            $age = $this->jar->cookiesAgeSeconds();
+            $ttl = (int) config('services.instagram.cookies_ttl', 60 * 60 * 24 * 7);
+
+            return $age !== null && $age <= $ttl ? $this->jar->cookiesPath() : null;
         }
 
-        return null;
+        $exported = (string) config('services.slack.ytdlp_cookies', '');
+
+        return $exported !== '' && is_file($exported) && filesize($exported) > 0 ? $exported : null;
     }
 
     /**
