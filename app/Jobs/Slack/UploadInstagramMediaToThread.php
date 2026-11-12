@@ -20,11 +20,11 @@ class UploadInstagramMediaToThread implements ShouldQueue
     public int $tries = 2;
 
     /**
-     * Must cover the worst case of one attempt: two yt-dlp runs, two logins
-     * (each a wait for the login lock plus two requests) and the three upload
-     * requests (204 s with the config in services.php), leave at least 30 s
-     * for filesystem and PHP overhead, and stay below the queue's retry_after.
-     * A worker that hits it exits without running `finally`, so `slack:prune-ig-downloads` cleans up.
+     * Must cover the worst case of one attempt: one yt-dlp run (it never logs
+     * in: on an auth failure it queues RefreshInstagramLogin and releases) and
+     * the three upload requests (100 s with the config in services.php), leave
+     * at least 30 s for filesystem and PHP overhead, and stay below the
+     * queue's retry_after. A worker that hits it exits without running `finally`, so `slack:prune-ig-downloads` cleans up.
      */
     public int $timeout = 240;
 
@@ -51,11 +51,17 @@ class UploadInstagramMediaToThread implements ShouldQueue
         try {
             $result = $this->runYtDlpWithRetry($jar, $tmpDir);
 
-            if ($result === null || $result->failed()) {
+            if ($result === null) {
+                Log::info('slack.ig.released_for_refresh', ['url' => $this->instagramUrl]);
+
+                return;
+            }
+
+            if ($result->failed()) {
                 Log::warning('slack.ig.ytdlp_failed', [
                     'url' => $this->instagramUrl,
-                    'exit_code' => $result?->exitCode(),
-                    'stderr' => $result?->errorOutput(),
+                    'exit_code' => $result->exitCode(),
+                    'stderr' => $result->errorOutput(),
                 ]);
 
                 return;
@@ -93,31 +99,44 @@ class UploadInstagramMediaToThread implements ShouldQueue
         }
     }
 
+    /**
+     * Runs yt-dlp once with the cookies that exist. When it fails like an
+     * expired session and a login can fix it, this attempt ends by queueing
+     * the (unique) refresh and releasing itself once: no login happens here.
+     * Returns null when the job was released.
+     */
     private function runYtDlpWithRetry(InstagramCookieJar $jar, string $tmpDir): ?ProcessResult
     {
-        $lastResult = null;
+        $jarPath = $jar->currentCookiesPath();
+        $seenModifiedAt = $jarPath !== null ? $jar->cookiesModifiedAt() : null;
+        $cookiesPath = $jarPath ?? (string) config('services.slack.ytdlp_cookies', '');
 
-        for ($attempt = 0; $attempt < 2; $attempt++) {
-            $cookiesPath = $jar->pickCookiesPath() ?? (string) config('services.slack.ytdlp_cookies', '');
-            $usedJar = $cookiesPath === $jar->cookiesPath() && is_file($cookiesPath);
+        $result = $this->runYtDlp($cookiesPath, $tmpDir);
 
-            $result = $this->runYtDlp($cookiesPath, $tmpDir);
-            $lastResult = $result;
-
-            if ($result->successful()) {
-                return $result;
-            }
-
-            if ($usedJar && $this->looksLikeAuthFailure($result->errorOutput())) {
-                $jar->markInvalid('yt-dlp: '.trim(Str::limit($result->errorOutput(), 200)));
-
-                continue;
-            }
-
-            break;
+        if ($result->successful() || ! $this->looksLikeAuthFailure($result->errorOutput())) {
+            return $result;
         }
 
-        return $lastResult;
+        if ($jar->credentials() === null || $this->attempts() > 1) {
+            return $result;
+        }
+
+        if ($jar->cooldownStatus() !== null) {
+            Log::warning('slack.ig.refresh_cooldown', ['url' => $this->instagramUrl, 'status' => $jar->cooldownStatus()]);
+
+            return $result;
+        }
+
+        $reason = 'yt-dlp: '.trim(Str::limit($result->errorOutput(), 200));
+
+        // A login that finished meanwhile already replaced the cookies this run used: retry only.
+        if ($jarPath === null || $jar->markInvalid($reason, $seenModifiedAt)) {
+            RefreshInstagramLogin::dispatch();
+        }
+
+        $this->release((int) config('services.instagram.refresh_retry_delay', 120));
+
+        return null;
     }
 
     private function runYtDlp(string $cookiesPath, string $tmpDir): ProcessResult

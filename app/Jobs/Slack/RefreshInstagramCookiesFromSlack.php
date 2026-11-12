@@ -19,12 +19,19 @@ class RefreshInstagramCookiesFromSlack implements ShouldQueue
 
     public int $tries = 1;
 
-    public int $timeout = 60;
+    /**
+     * A forced login that waits for a contended login lock: the lock wait, the
+     * longest login (browser timeout plus its 10 s stop grace) and the Slack
+     * reply, at least 30 s to spare (see the budget test).
+     */
+    public int $timeout = 150;
 
     public function __construct(
         public string $responseUrl = '',
         public ?string $dmChannel = null,
-    ) {}
+    ) {
+        $this->onQueue((string) config('services.instagram.queue', 'instagram'));
+    }
 
     /**
      * @return array<int, int>

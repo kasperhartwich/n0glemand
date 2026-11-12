@@ -211,6 +211,21 @@ return [
             'timeout' => 240,
             'nice' => 0,
         ],
+
+        // Logins (headless browser, up to a minute and later a long wait for a code) run apart
+        // from the download jobs: one process, so two logins never run at once.
+        'supervisor-instagram' => [
+            'connection' => 'redis',
+            'queue' => ['instagram'],
+            'balance' => false,
+            'processes' => 1,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 256,
+            'tries' => 1,
+            'timeout' => 900,
+            'nice' => 0,
+        ],
     ],
 
     'environments' => [
@@ -220,12 +235,14 @@ return [
                 'balanceMaxShift' => 1,
                 'balanceCooldown' => 3,
             ],
+            'supervisor-instagram' => [],
         ],
 
         'local' => [
             'supervisor-1' => [
                 'maxProcesses' => 2,
             ],
+            'supervisor-instagram' => [],
         ],
     ],
 

@@ -1,6 +1,9 @@
 <?php
 
 use App\Services\Instagram\InstagramCookieJar;
+use App\Services\Instagram\InstagramLogin;
+use App\Services\Instagram\InstagramLoginResult;
+use App\Services\Instagram\InstagramLoginStatus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
@@ -43,60 +46,89 @@ function fakeSuccessfulLogin(): void
 
 it('returns null when credentials are not configured', function () {
     Http::fake();
+    seedCookiesFile();
 
-    expect(app(InstagramCookieJar::class)->pickCookiesPath())->toBeNull();
+    expect(app(InstagramCookieJar::class)->currentCookiesPath())->toBeNull();
     Http::assertNothingSent();
 });
 
-it('returns the cached path on a fresh-cache hit without calling Instagram', function () {
-    config()->set('services.instagram.username', 'acct1');
-    config()->set('services.instagram.password', 'pw');
-    $path = seedCookiesFile();
-    Http::fake();
-
-    expect(app(InstagramCookieJar::class)->pickCookiesPath())->toBe($path);
-    Http::assertNothingSent();
-});
-
-it('logs in and writes a cookies file when the cache is empty', function () {
-    config()->set('services.instagram.username', 'acct1');
-    config()->set('services.instagram.password', 'pw');
-    fakeSuccessfulLogin();
-
-    $path = app(InstagramCookieJar::class)->pickCookiesPath();
-
-    expect($path)->not->toBeNull();
-    expect(File::exists($path))->toBeTrue();
-    expect(File::get($path))->toContain('FRESH');
-});
-
-it('treats stale cookies as a cache miss and re-logs in', function () {
+it('returns the current file whatever its age and never logs in or touches it', function () {
     config()->set('services.instagram.username', 'acct1');
     config()->set('services.instagram.password', 'pw');
     config()->set('services.instagram.cookies_ttl', 60);
-    seedCookiesFile(-120);
-    fakeSuccessfulLogin();
+    $path = seedCookiesFile(-3600);
+    $mtime = filemtime($path);
+    Http::fake();
 
-    $path = app(InstagramCookieJar::class)->pickCookiesPath();
-
-    expect(File::get($path))->toContain('FRESH');
+    expect(app(InstagramCookieJar::class)->currentCookiesPath())->toBe($path)
+        ->and(filemtime($path))->toBe($mtime);
+    Http::assertNothingSent();
 });
 
-it('markInvalid deletes the cached file without putting the account on cooldown', function () {
+it('returns null without a file and does not log in to make one', function () {
     config()->set('services.instagram.username', 'acct1');
     config()->set('services.instagram.password', 'pw');
-    $path = seedCookiesFile();
+    Http::fake();
+
+    expect(app(InstagramCookieJar::class)->currentCookiesPath())->toBeNull();
+    Http::assertNothingSent();
+});
+
+it('a forced login writes a cookies file', function () {
+    config()->set('services.instagram.username', 'acct1');
+    config()->set('services.instagram.password', 'pw');
     fakeSuccessfulLogin();
 
     $jar = app(InstagramCookieJar::class);
-    $jar->markInvalid('test reason');
 
-    expect(File::exists($path))->toBeFalse();
-    expect($jar->pickCookiesPath())->toBe($path);
-    expect(File::get($path))->toContain('FRESH');
+    expect($jar->refresh())->toBeTrue()
+        ->and(File::get($jar->currentCookiesPath()))->toContain('FRESH');
 });
 
-it('returns null and skips login while the cooldown is active after a login failure', function () {
+it('markInvalid deletes the file without a cooldown and the next login is told to start fresh', function () {
+    config()->set('services.instagram.username', 'acct1');
+    config()->set('services.instagram.password', 'pw');
+    $path = seedCookiesFile();
+    $flags = [];
+    app()->instance(InstagramLogin::class, new class($flags) implements InstagramLogin
+    {
+        public function __construct(private array &$flags) {}
+
+        public function login(string $username, string $password, bool $forceFresh = false): InstagramLoginResult
+        {
+            $this->flags[] = $forceFresh;
+
+            return new InstagramLoginResult(InstagramLoginStatus::Ok, cookiesTxt: "sessionid\tFRESH\n");
+        }
+    });
+
+    $jar = app(InstagramCookieJar::class);
+
+    expect($jar->markInvalid('test reason'))->toBeTrue()
+        ->and(File::exists($path))->toBeFalse()
+        ->and($jar->cooldownStatus())->toBeNull();
+
+    $jar->refresh();
+    $jar->refresh();
+
+    expect($flags)->toBe([true, false]);
+});
+
+it('markInvalid leaves cookies that a login replaced since they were used', function () {
+    config()->set('services.instagram.username', 'acct1');
+    config()->set('services.instagram.password', 'pw');
+    $path = seedCookiesFile();
+    $seen = filemtime($path) - 100;
+
+    $jar = app(InstagramCookieJar::class);
+
+    expect($jar->markInvalid('late', $seen))->toBeFalse()
+        ->and(File::exists($path))->toBeTrue();
+    expect($jar->markInvalid('same file', (int) filemtime($path)))->toBeTrue()
+        ->and(File::exists($path))->toBeFalse();
+});
+
+it('keeps the cooldown after a failed login and does not write a file', function () {
     config()->set('services.instagram.username', 'acct1');
     config()->set('services.instagram.password', 'pw');
     Http::fake([
@@ -111,11 +143,10 @@ it('returns null and skips login while the cooldown is active after a login fail
     ]);
 
     $jar = app(InstagramCookieJar::class);
-    expect($jar->pickCookiesPath())->toBeNull();
 
-    Http::fake();
-    expect($jar->pickCookiesPath())->toBeNull();
-    Http::assertNothingSent();
+    expect($jar->refresh())->toBeFalse()
+        ->and($jar->cooldownStatus())->not->toBeNull()
+        ->and($jar->currentCookiesPath())->toBeNull();
 });
 
 it('writes the cookies file with mode 0600 and leaves no temp file behind', function () {
@@ -123,7 +154,9 @@ it('writes the cookies file with mode 0600 and leaves no temp file behind', func
     config()->set('services.instagram.password', 'pw');
     fakeSuccessfulLogin();
 
-    $path = app(InstagramCookieJar::class)->pickCookiesPath();
+    $jar = app(InstagramCookieJar::class);
+    $jar->refresh();
+    $path = $jar->cookiesPath();
 
     expect(fileperms($path) & 0777)->toBe(0600)
         ->and(glob(dirname($path).'/*.tmp'))->toBe([]);
@@ -139,7 +172,6 @@ it('skips the login and returns null while another worker holds the login lock',
 
     $jar = app(InstagramCookieJar::class);
 
-    expect($jar->pickCookiesPath())->toBeNull()
-        ->and($jar->refresh())->toBeFalse();
+    expect($jar->refresh())->toBeFalse();
     Http::assertNothingSent();
 });

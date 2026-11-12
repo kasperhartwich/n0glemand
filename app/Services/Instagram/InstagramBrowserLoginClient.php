@@ -18,7 +18,7 @@ class InstagramBrowserLoginClient implements InstagramLogin
         private NetscapeCookieFormatter $formatter,
     ) {}
 
-    public function login(string $username, string $password): InstagramLoginResult
+    public function login(string $username, string $password, bool $forceFresh = false): InstagramLoginResult
     {
         $timeout = max(10, (int) config('services.instagram.browser_timeout', 50));
 
@@ -35,6 +35,8 @@ class InstagramBrowserLoginClient implements InstagramLogin
                     // The script gives up by itself before the process timeout kills it.
                     'INSTAGRAM_LOGIN_TIMEOUT' => (string) max(5, $timeout - 8),
                     'PLAYWRIGHT_BROWSERS_PATH' => $browserDir.'/browsers',
+                    // Drop the profile's sessionid first so a dead session is not handed back.
+                    'INSTAGRAM_FORCE_FRESH' => $forceFresh ? '1' : '0',
                 ])
                 ->run([
                     (string) config('services.instagram.node_binary', 'node'),

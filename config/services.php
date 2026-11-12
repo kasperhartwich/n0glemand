@@ -62,6 +62,11 @@ return [
         'browser_timeout' => (int) env('INSTAGRAM_BROWSER_TIMEOUT', 50),
         'login_timeout' => 8,
         'login_lock_wait' => 16,
+        // Lock TTL: longer than the longest login (browser_timeout plus the 10 s stop grace) with margin.
+        'login_lock_ttl' => (int) env('INSTAGRAM_LOGIN_LOCK_TTL', 120),
+        'queue' => 'instagram',
+        // Delay before an upload job retries once after queueing a login refresh.
+        'refresh_retry_delay' => 120,
     ],
 
 ];

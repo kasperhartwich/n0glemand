@@ -20,7 +20,7 @@ class InstagramLoginClient implements InstagramLogin
         private NetscapeCookieFormatter $formatter,
     ) {}
 
-    public function login(string $username, string $password): InstagramLoginResult
+    public function login(string $username, string $password, bool $forceFresh = false): InstagramLoginResult
     {
         try {
             $bootstrap = $this->fetchLoginPage();

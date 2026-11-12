@@ -5,6 +5,7 @@
 //   INSTAGRAM_LOGIN_USERNAME, INSTAGRAM_LOGIN_PASSWORD
 //   INSTAGRAM_PROFILE_DIR      persistent browser profile (device cookies, local storage)
 //   INSTAGRAM_BROWSER_DIR      folder that holds node_modules/playwright (default: this folder)
+//   INSTAGRAM_FORCE_FRESH      "1": drop the profile's session cookies first and sign in again
 //   INSTAGRAM_LOGIN_TIMEOUT    seconds before the script gives up by itself (default 40)
 //   PLAYWRIGHT_BROWSERS_PATH   where `playwright install` put Chromium
 //
@@ -23,10 +24,13 @@ const username = process.env.INSTAGRAM_LOGIN_USERNAME ?? '';
 const password = process.env.INSTAGRAM_LOGIN_PASSWORD ?? '';
 const profileDir = process.env.INSTAGRAM_PROFILE_DIR ?? '';
 const browserDir = process.env.INSTAGRAM_BROWSER_DIR || here;
+const forceFresh = process.env.INSTAGRAM_FORCE_FRESH === '1';
 const timeoutMs = Math.max(5, Number(process.env.INSTAGRAM_LOGIN_TIMEOUT) || 40) * 1000;
 
 const LOGIN_URL = 'https://www.instagram.com/accounts/login/';
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+const SESSION_COOKIES = new Set(['sessionid', 'ds_user_id', 'csrftoken', 'rur', 'shbid', 'shbts']);
 
 const deadline = Date.now() + timeoutMs;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -144,6 +148,18 @@ try {
         locale: 'en-US',
         viewport: { width: 1280, height: 800 },
     });
+
+    if (forceFresh) {
+        // The caller found the profile's session dead: keep the device cookies (mid, ig_did, ...)
+        // but drop the session ones, or the reuse path below would hand the dead session back.
+        const keep = (await context.cookies()).filter((c) => !SESSION_COOKIES.has(c.name));
+
+        await context.clearCookies();
+
+        if (keep.length > 0) {
+            await context.addCookies(keep);
+        }
+    }
 
     const page = context.pages()[0] ?? (await context.newPage());
     page.setDefaultTimeout(Math.min(15000, timeLeft()));

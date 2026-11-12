@@ -187,3 +187,13 @@ it('feeds the cookie jar with the browser login and writes the cookie file', fun
 
     @unlink($jar->cookiesPath());
 });
+
+it('tells the script to drop the profile session only when asked to force a fresh sign-in', function () {
+    Process::fake(['*' => Process::result(okLine())]);
+
+    app(InstagramBrowserLoginClient::class)->login('kasper', 'hunter2');
+    app(InstagramBrowserLoginClient::class)->login('kasper', 'hunter2', forceFresh: true);
+
+    Process::assertRan(fn ($process) => $process->environment['INSTAGRAM_FORCE_FRESH'] === '0');
+    Process::assertRan(fn ($process) => $process->environment['INSTAGRAM_FORCE_FRESH'] === '1');
+});

@@ -15,56 +15,71 @@ class InstagramCookieJar
 
     private const LOGIN_LOCK_KEY = 'ig:login';
 
+    private const FORCE_FRESH_CACHE_KEY = 'ig:login:force_fresh';
+
     public function __construct(
         private InstagramLogin $client,
     ) {}
 
-    public function pickCookiesPath(): ?string
+    /**
+     * The cookie file the login wrote, as it is: no login, no touch, whatever
+     * its age (the scheduled refresh and the upload job's auth-failure path
+     * keep it alive). Null without credentials or without a file.
+     */
+    public function currentCookiesPath(): ?string
     {
-        $credentials = $this->credentials();
-
-        if ($credentials === null) {
+        if ($this->credentials() === null) {
             return null;
         }
 
         $path = $this->cookiesPath();
-        $ttl = (int) config('services.instagram.cookies_ttl', 60 * 60 * 24 * 7);
 
-        if ($this->cacheHit($path, $ttl)) {
-            @touch($path);
-
-            return $path;
-        }
-
-        if (Cache::has(self::COOLDOWN_CACHE_KEY)) {
-            return null;
-        }
-
-        return $this->withLoginLock(function () use ($credentials, $path, $ttl): ?string {
-            if ($this->cacheHit($path, $ttl)) {
-                return $path;
-            }
-
-            if (Cache::has(self::COOLDOWN_CACHE_KEY)) {
-                return null;
-            }
-
-            return $this->login($credentials) === InstagramLoginStatus::Ok ? $path : null;
-        });
+        return is_file($path) && filesize($path) > 0 ? $path : null;
     }
 
-    public function markInvalid(string $reason): void
+    /**
+     * Modification time of the cookie file, null when there is none.
+     */
+    public function cookiesModifiedAt(): ?int
     {
+        $path = $this->cookiesPath();
+
+        return is_file($path) ? (int) filemtime($path) : null;
+    }
+
+    /**
+     * Throws the cookie file away because they were found dead, and makes the
+     * next login start a fresh sign-in (the browser profile may still hold the
+     * dead session). With `$seenModifiedAt` it only does so when the file is
+     * still the one the caller used: a login that finished meanwhile wrote new
+     * cookies that must not be deleted. Returns whether it invalidated.
+     */
+    public function markInvalid(string $reason, ?int $seenModifiedAt = null): bool
+    {
+        if ($seenModifiedAt !== null && $this->cookiesModifiedAt() !== $seenModifiedAt) {
+            Log::info('instagram.cookies.invalidate_skipped', ['reason' => 'replaced since use']);
+
+            return false;
+        }
+
         $path = $this->cookiesPath();
 
         if (is_file($path)) {
             @unlink($path);
         }
 
+        Cache::put(
+            self::FORCE_FRESH_CACHE_KEY,
+            true,
+            (int) config('services.instagram.cookies_ttl', 60 * 60 * 24 * 7),
+        );
+
         Log::warning('instagram.cookies.invalidated', [
             'username' => $this->credentials()['username'] ?? null,
             'reason' => $reason,
         ]);
+
+        return true;
     }
 
     public function refresh(): bool
@@ -126,7 +141,7 @@ class InstagramCookieJar
     private function withLoginLock(callable $callback): mixed
     {
         try {
-            return Cache::lock(self::LOGIN_LOCK_KEY, 60)
+            return Cache::lock(self::LOGIN_LOCK_KEY, (int) config('services.instagram.login_lock_ttl', 120))
                 ->block((int) config('services.instagram.login_lock_wait', 16), $callback);
         } catch (LockTimeoutException) {
             Log::warning('instagram.login.lock_timeout');
@@ -140,7 +155,11 @@ class InstagramCookieJar
      */
     private function login(array $credentials): InstagramLoginStatus
     {
-        $result = $this->client->login($credentials['username'], $credentials['password']);
+        $result = $this->client->login(
+            $credentials['username'],
+            $credentials['password'],
+            Cache::has(self::FORCE_FRESH_CACHE_KEY),
+        );
 
         if (! $result->isOk() || $result->cookiesTxt === null) {
             Cache::put(
@@ -166,6 +185,7 @@ class InstagramCookieJar
 
         $this->writeCookies($result->cookiesTxt);
         Cache::forget(self::COOLDOWN_CACHE_KEY);
+        Cache::forget(self::FORCE_FRESH_CACHE_KEY);
 
         Log::info('instagram.login.ok', ['username' => $credentials['username']]);
 
@@ -201,15 +221,6 @@ class InstagramCookieJar
     public function cookiesPath(): string
     {
         return $this->cacheDir().'/instagram.txt';
-    }
-
-    private function cacheHit(string $path, int $ttl): bool
-    {
-        if (! is_file($path) || filesize($path) === 0) {
-            return false;
-        }
-
-        return (time() - (int) filemtime($path)) <= $ttl;
     }
 
     private function writeCookies(string $cookiesTxt): void

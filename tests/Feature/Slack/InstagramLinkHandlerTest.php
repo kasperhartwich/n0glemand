@@ -1,10 +1,14 @@
 <?php
 
 use App\Jobs\Slack\CheckInstagramFromSlack;
+use App\Jobs\Slack\RefreshInstagramCookiesFromSlack;
+use App\Jobs\Slack\RefreshInstagramLogin;
 use App\Jobs\Slack\UploadInstagramMediaToThread;
 use App\Services\Instagram\InstagramCookieJar;
 use App\Services\Slack\Handlers\InstagramLinkHandler;
 use App\Services\Slack\SlackClient;
+use Illuminate\Contracts\Queue\Job as QueueJob;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
@@ -169,71 +173,148 @@ it('passes the jar-supplied cookies file to yt-dlp and leaves it in place', func
     expect(File::exists($cookiesPath))->toBeTrue();
 });
 
-it('deletes the cached cookies and re-logs in on retry when yt-dlp reports login_required', function () {
-    Str::createUuidsUsing(fn () => 'fixed-uuid-stale');
-    $tmpDir = storage_path('app/slack-ig/fixed-uuid-stale');
+function seedJarCookies(string $session = 'stale'): string
+{
+    $path = app(InstagramCookieJar::class)->cookiesPath();
+    File::ensureDirectoryExists(dirname($path));
+    File::put($path, "# Netscape HTTP Cookie File\n.instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\t{$session}\n");
 
-    $jar = app(InstagramCookieJar::class);
-    $cookiesPath = $jar->cookiesPath();
-    File::ensureDirectoryExists(dirname($cookiesPath));
-    File::put($cookiesPath, "# Netscape HTTP Cookie File\n.instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\tstale\n");
+    return $path;
+}
 
+function uploadJobOnAttempt(int $attempt, ?int $expectedReleaseDelay = null): UploadInstagramMediaToThread
+{
+    $queueJob = Mockery::mock(QueueJob::class);
+    $queueJob->shouldReceive('attempts')->andReturn($attempt);
+
+    if ($expectedReleaseDelay === null) {
+        $queueJob->shouldNotReceive('release');
+    } else {
+        $queueJob->shouldReceive('release')->once()->with($expectedReleaseDelay);
+    }
+
+    $job = new UploadInstagramMediaToThread('https://www.instagram.com/reel/stale/', 'C42', '1700000000.000100');
+    $job->setJob($queueJob);
+
+    return $job;
+}
+
+it('never logs in: on an auth failure it invalidates, queues one refresh and releases itself', function () {
+    Queue::fake();
+    Http::fake();
+    Process::fake(['*' => Process::result(output: '', errorOutput: 'ERROR: [Instagram] login_required: ...', exitCode: 1)]);
     config()->set('services.instagram.username', 'acct1');
     config()->set('services.instagram.password', 'pw');
+    $cookiesPath = seedJarCookies();
 
-    $attempts = 0;
-    Process::fake(function () use (&$attempts, $tmpDir) {
-        $attempts++;
+    uploadJobOnAttempt(1, 120)->handle(app(SlackClient::class), app(InstagramCookieJar::class));
 
-        if ($attempts === 1) {
-            return Process::result(output: '', errorOutput: 'ERROR: [Instagram] login_required: ...', exitCode: 1);
-        }
+    expect(File::exists($cookiesPath))->toBeFalse();
+    Queue::assertPushed(RefreshInstagramLogin::class, 1);
+    Queue::assertPushedOn('instagram', RefreshInstagramLogin::class);
+    Http::assertNothingSent();
+    Process::assertRanTimes(fn () => true, 1);
+});
 
-        File::ensureDirectoryExists($tmpDir);
-        File::put($tmpDir.'/stale.mp4', str_repeat('x', 128));
+it('does not loop: on the retry attempt an auth failure only logs', function () {
+    Queue::fake();
+    Http::fake();
+    Process::fake(['*' => Process::result(output: '', errorOutput: 'ERROR: [Instagram] login_required', exitCode: 1)]);
+    config()->set('services.instagram.username', 'acct1');
+    config()->set('services.instagram.password', 'pw');
+    $cookiesPath = seedJarCookies();
 
-        return Process::result(output: '', exitCode: 0);
+    uploadJobOnAttempt(2)->handle(app(SlackClient::class), app(InstagramCookieJar::class));
+
+    Queue::assertNothingPushed();
+    expect(File::exists($cookiesPath))->toBeTrue();
+    Http::assertNothingSent();
+});
+
+it('queues one refresh for many failing reels', function () {
+    Queue::fake();
+    Process::fake(['*' => Process::result(output: '', errorOutput: 'login_required', exitCode: 1)]);
+    config()->set('services.instagram.username', 'acct1');
+    config()->set('services.instagram.password', 'pw');
+    config()->set('services.instagram.refresh_retry_delay', 120);
+
+    // Each failing reel dispatches the refresh; ShouldBeUnique makes the queue keep one (the fake honors it).
+    expect(RefreshInstagramLogin::class)->toImplement(ShouldBeUnique::class);
+
+    foreach (range(1, 3) as $i) {
+        seedJarCookies();
+        uploadJobOnAttempt(1, 120)->handle(app(SlackClient::class), app(InstagramCookieJar::class));
+    }
+
+    Queue::assertPushed(RefreshInstagramLogin::class, 1);
+});
+
+it('does not queue a refresh while the login cooldown is active', function () {
+    Queue::fake();
+    Process::fake(['*' => Process::result(output: '', errorOutput: 'login_required', exitCode: 1)]);
+    config()->set('services.instagram.username', 'acct1');
+    config()->set('services.instagram.password', 'pw');
+    Cache::put('ig:login:cooldown', 'checkpoint_required', 300);
+    seedJarCookies();
+
+    uploadJobOnAttempt(1)->handle(app(SlackClient::class), app(InstagramCookieJar::class));
+
+    Queue::assertNothingPushed();
+});
+
+it('does not touch cookies a refresh replaced while yt-dlp ran, and only retries', function () {
+    Queue::fake();
+    config()->set('services.instagram.username', 'acct1');
+    config()->set('services.instagram.password', 'pw');
+    $cookiesPath = seedJarCookies();
+
+    Process::fake(function () use ($cookiesPath) {
+        File::put($cookiesPath, "sessionid\tFRESH\n");
+        touch($cookiesPath, time() + 50);
+
+        return Process::result(output: '', errorOutput: 'login_required', exitCode: 1);
     });
-    Http::fake([
-        'https://www.instagram.com/accounts/login/' => Http::response('', 200, [
-            'Set-Cookie' => ['csrftoken=tok; Path=/; Domain=.instagram.com'],
-        ]),
-        'https://www.instagram.com/accounts/login/ajax/' => Http::response(
-            ['authenticated' => true, 'user' => true, 'status' => 'ok'],
-            200,
-            ['Set-Cookie' => ['sessionid=FRESH; Path=/; Domain=.instagram.com; Secure']],
-        ),
-        'slack.test/api/files.getUploadURLExternal*' => Http::response([
-            'ok' => true, 'upload_url' => 'https://files.test/upload/retry', 'file_id' => 'FR',
-        ]),
-        'https://files.test/upload/retry' => Http::response('OK'),
-        'slack.test/api/files.completeUploadExternal' => Http::response(['ok' => true]),
-    ]);
 
-    (new UploadInstagramMediaToThread(
-        instagramUrl: 'https://www.instagram.com/reel/stale/',
-        channel: 'C42',
-        threadTs: '1700000000.000100',
-    ))->handle(app(SlackClient::class), $jar);
+    uploadJobOnAttempt(1, 120)->handle(app(SlackClient::class), app(InstagramCookieJar::class));
 
-    expect($attempts)->toBe(2);
-    Http::assertSent(fn (Request $req) => $req->url() === 'https://www.instagram.com/accounts/login/ajax/');
+    expect(File::get($cookiesPath))->toContain('FRESH');
+    Queue::assertNothingPushed();
+});
+
+it('has nothing to refresh without credentials and just logs the failure', function () {
+    Queue::fake();
+    Process::fake(['*' => Process::result(output: '', errorOutput: 'login_required', exitCode: 1)]);
+
+    uploadJobOnAttempt(1)->handle(app(SlackClient::class), app(InstagramCookieJar::class));
+
+    Queue::assertNothingPushed();
 });
 
 it('fits the worst case of one attempt inside the job timeout with 30 s to spare, and the timeout below retry_after', function () {
-    $ytdlp = 2 * config('services.slack.ytdlp_timeout');
-    $logins = 2 * (config('services.instagram.login_lock_wait') + 2 * config('services.instagram.login_timeout'));
+    $ytdlp = config('services.slack.ytdlp_timeout');
     $upload = 10 + config('services.slack.upload_timeout') + 10;
 
     $timeout = (new UploadInstagramMediaToThread('u', 'C1', '1.2'))->timeout;
 
-    expect($ytdlp + $logins + $upload)->toBeLessThanOrEqual($timeout - 30)
+    expect($ytdlp + $upload)->toBeLessThanOrEqual($timeout - 30)
         ->and($timeout)->toBeLessThan(config('queue.connections.redis.retry_after'));
 });
 
+it('fits a contended login inside the refresh jobs timeouts with 30 s to spare, and below retry_after', function (object $job) {
+    $browserLogin = config('services.instagram.browser_timeout') + 10;
+    $worst = config('services.instagram.login_lock_wait') + $browserLogin + 10;
+
+    expect($worst)->toBeLessThanOrEqual($job->timeout - 30)
+        ->and($job->timeout)->toBeLessThan(config('queue.connections.redis.retry_after'))
+        ->and($job->queue)->toBe('instagram');
+})->with([
+    'refresh job' => [fn () => new RefreshInstagramLogin],
+    'slack refresh' => [fn () => new RefreshInstagramCookiesFromSlack('https://hooks.slack.test/x')],
+]);
+
 it('fits the session check worst case inside the CheckInstagramFromSlack timeout with 30 s to spare', function () {
     $http = (3 + 1) * config('services.instagram.login_timeout') + config('services.slack.ytdlp_timeout');
-    $login = config('services.instagram.login_lock_wait') + 2 * config('services.instagram.login_timeout');
+    $login = config('services.instagram.login_lock_wait') + max(2 * config('services.instagram.login_timeout'), config('services.instagram.browser_timeout') + 10);
 
     $timeout = (new CheckInstagramFromSlack('https://hooks.slack.test/x'))->timeout;
 
