@@ -55,6 +55,7 @@ return [
         'password' => env('INSTAGRAM_PASSWORD'),
         'cookies_ttl' => (int) env('INSTAGRAM_COOKIES_TTL', 60 * 60 * 24 * 7),
         'login_cooldown' => (int) env('INSTAGRAM_LOGIN_COOLDOWN', 60 * 5),
+        'check_url' => env('INSTAGRAM_CHECK_URL'),
         'login_timeout' => 8,
         'login_lock_wait' => 16,
     ],

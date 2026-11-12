@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Process;
 
 const CURRENT_USER = 'https://www.instagram.com/api/v1/accounts/current_user/*';
 
@@ -68,6 +69,58 @@ it('classifies a rejected session as invalid cookies', function (int $status, ar
 it('classifies a redirect to the login page as invalid cookies', function () {
     writeCookieFile();
     Http::fake([CURRENT_USER => Http::response('', 302, ['Location' => 'https://www.instagram.com/accounts/login/'])]);
+
+    expect(app(InstagramSessionCheck::class)->run()->status)->toBe(InstagramCheckStatus::CookiesInvalid);
+});
+
+it('follows a redirect to a canonical url with the same cookies and logs the Location', function () {
+    writeCookieFile();
+    Http::fake([
+        'https://www.instagram.com/api/v1/accounts/current_user/?edit=true' => Http::response('', 302, ['Location' => '/api/v1/accounts/current_user/?edit=true&x=1']),
+        'https://www.instagram.com/api/v1/accounts/current_user/?edit=true&x=1' => Http::response(['user' => ['username' => 'kasper']]),
+    ]);
+
+    expect(app(InstagramSessionCheck::class)->run()->status)->toBe(InstagramCheckStatus::Ok);
+    Http::assertSent(fn ($request) => str_contains($request->url(), '&x=1')
+        && $request->header('Cookie')[0] === 'sessionid=SESSION123; csrftoken=CSRF456'
+        && $request->header('Referer')[0] === 'https://www.instagram.com/');
+    Log::shouldHaveReceived('warning')->with('slack.ig.healthcheck.redirect', Mockery::on(fn ($c) => $c['location'] === '/api/v1/accounts/current_user/?edit=true&x=1'));
+});
+
+it('does not call an unexplained redirect a rejection, and names the Location', function () {
+    writeCookieFile();
+    Http::fake([CURRENT_USER => Http::response('', 302, ['Location' => 'https://elsewhere.example/x'])]);
+
+    $result = app(InstagramSessionCheck::class)->run();
+
+    expect($result->status)->toBe(InstagramCheckStatus::Inconclusive)
+        ->and($result->message)->toContain('https://elsewhere.example/x');
+});
+
+it('classifies a redirect to a challenge as a checkpoint', function () {
+    writeCookieFile();
+    Http::fake([CURRENT_USER => Http::response('', 302, ['Location' => 'https://www.instagram.com/challenge/abc/'])]);
+
+    expect(app(InstagramSessionCheck::class)->run()->status)->toBe(InstagramCheckStatus::CheckpointRequired);
+});
+
+it('confirms with yt-dlp on the check reel when the HTTP check cannot tell', function () {
+    writeCookieFile();
+    config()->set('services.instagram.check_url', 'https://www.instagram.com/reel/ABC/');
+    Http::fake([CURRENT_USER => Http::response('', 302, ['Location' => 'https://www.instagram.com/accounts/login/'])]);
+    Process::fake(['*' => Process::result('{}')]);
+
+    $result = app(InstagramSessionCheck::class)->run();
+
+    expect($result->status)->toBe(InstagramCheckStatus::Ok);
+    Process::assertRan(fn ($p) => in_array('https://www.instagram.com/reel/ABC/', $p->command, true) && in_array('--skip-download', $p->command, true));
+});
+
+it('keeps the HTTP verdict when yt-dlp fails on the check reel too', function () {
+    writeCookieFile();
+    config()->set('services.instagram.check_url', 'https://www.instagram.com/reel/ABC/');
+    Http::fake([CURRENT_USER => Http::response('', 401, ['require_login' => true])]);
+    Process::fake(['*' => Process::result('', 'login required', 1)]);
 
     expect(app(InstagramSessionCheck::class)->run()->status)->toBe(InstagramCheckStatus::CookiesInvalid);
 });

@@ -5,6 +5,7 @@ namespace App\Services\Instagram;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Process;
 use Throwable;
 
 /**
@@ -19,6 +20,8 @@ use Throwable;
 class InstagramSessionCheck
 {
     private const CURRENT_USER_URL = 'https://www.instagram.com/api/v1/accounts/current_user/?edit=true';
+
+    private const MAX_REDIRECTS = 3;
 
     private const IG_APP_ID = '936619743392459';
 
@@ -62,18 +65,7 @@ class InstagramSessionCheck
         }
 
         try {
-            $response = Http::withHeaders([
-                'User-Agent' => self::USER_AGENT,
-                'Accept' => '*/*',
-                'Accept-Language' => 'en-US,en;q=0.9',
-                'X-IG-App-ID' => self::IG_APP_ID,
-                'X-CSRFToken' => $cookies['csrftoken'] ?? '',
-                'X-Requested-With' => 'XMLHttpRequest',
-                'Cookie' => collect($cookies)->map(fn (string $value, string $name) => "{$name}={$value}")->implode('; '),
-            ])
-                ->withoutRedirecting()
-                ->timeout((int) config('services.instagram.login_timeout', 8))
-                ->get(self::CURRENT_USER_URL);
+            $response = $this->request($cookies);
         } catch (Throwable $e) {
             return new InstagramCheckResult(
                 InstagramCheckStatus::Inconclusive,
@@ -81,7 +73,126 @@ class InstagramSessionCheck
             );
         }
 
-        return $this->classify($response);
+        return $this->confirmWithYtDlp($this->classify($response), $path);
+    }
+
+    /**
+     * Sends the request the web app sends and follows redirects by hand, up
+     * to MAX_REDIRECTS, on instagram.com only and with the same cookies. A
+     * redirect to a canonical host or a trailing slash is then not mistaken
+     * for a rejection, and every Location is logged.
+     *
+     * @param  array<string, string>  $cookies
+     */
+    private function request(array $cookies): Response
+    {
+        $url = self::CURRENT_USER_URL;
+        $headers = [
+            'User-Agent' => self::USER_AGENT,
+            'Accept' => '*/*',
+            'Accept-Language' => 'en-US,en;q=0.9',
+            'Referer' => 'https://www.instagram.com/',
+            'Origin' => 'https://www.instagram.com',
+            'Sec-Fetch-Site' => 'same-origin',
+            'Sec-Fetch-Mode' => 'cors',
+            'Sec-Fetch-Dest' => 'empty',
+            'X-IG-App-ID' => self::IG_APP_ID,
+            'X-CSRFToken' => $cookies['csrftoken'] ?? '',
+            'X-Requested-With' => 'XMLHttpRequest',
+            'Cookie' => collect($cookies)->map(fn (string $value, string $name) => "{$name}={$value}")->implode('; '),
+        ];
+
+        for ($hop = 0; ; $hop++) {
+            $response = Http::withHeaders($headers)
+                ->withoutRedirecting()
+                ->timeout((int) config('services.instagram.login_timeout', 8))
+                ->get($url);
+
+            if (! $response->redirect()) {
+                return $response;
+            }
+
+            $location = (string) $response->header('Location');
+
+            Log::warning('slack.ig.healthcheck.redirect', [
+                'status' => $response->status(),
+                'from' => $url,
+                'location' => $location,
+            ]);
+
+            $next = $this->resolveLocation($url, $location);
+
+            if ($hop >= self::MAX_REDIRECTS || $next === null || $this->isLoginOrChallenge($next)) {
+                return $response;
+            }
+
+            $url = $next;
+        }
+    }
+
+    private function resolveLocation(string $from, string $location): ?string
+    {
+        if ($location === '') {
+            return null;
+        }
+
+        $absolute = str_starts_with($location, '/')
+            ? 'https://www.instagram.com'.$location
+            : $location;
+
+        $host = strtolower((string) parse_url($absolute, PHP_URL_HOST));
+
+        if (! str_starts_with($absolute, 'https://') || ($host !== 'instagram.com' && ! str_ends_with($host, '.instagram.com'))) {
+            return null;
+        }
+
+        return $absolute === $from ? null : $absolute;
+    }
+
+    private function isLoginOrChallenge(string $url): bool
+    {
+        return (bool) preg_match('#^https://[^/]+/(accounts/login|challenge)#', $url);
+    }
+
+    /**
+     * A plain HTTP check can be wrong (a redirect we do not understand, a
+     * transport error). When INSTAGRAM_CHECK_URL names a stable reel, ask
+     * yt-dlp, which is what the download job uses, and trust that.
+     */
+    private function confirmWithYtDlp(InstagramCheckResult $result, string $cookiesPath): InstagramCheckResult
+    {
+        $url = (string) config('services.instagram.check_url', '');
+
+        if ($result->isOk() || $url === '' || ! in_array($result->status, [InstagramCheckStatus::CookiesInvalid, InstagramCheckStatus::Inconclusive], true)) {
+            return $result;
+        }
+
+        try {
+            $process = Process::timeout((int) config('services.slack.ytdlp_timeout', 40))->run([
+                (string) config('services.slack.ytdlp_binary', 'yt-dlp'),
+                '--cookies', $cookiesPath,
+                '--skip-download', '--no-warnings', '--quiet', '--dump-single-json',
+                $url,
+            ]);
+        } catch (Throwable $e) {
+            Log::warning('slack.ig.healthcheck.ytdlp_error', ['exception' => $e->getMessage()]);
+
+            return $result;
+        }
+
+        if ($process->successful()) {
+            Log::info('slack.ig.healthcheck.ytdlp_confirmed', ['after' => $result->status->value]);
+
+            return new InstagramCheckResult(
+                InstagramCheckStatus::Ok,
+                'yt-dlp read the check reel with the cookies (the HTTP check said: '.$result->message.')',
+            );
+        }
+
+        return new InstagramCheckResult(
+            $result->status,
+            $result->message.' yt-dlp on the check reel failed too.',
+        );
     }
 
     private function classify(Response $response): InstagramCheckResult
@@ -100,7 +211,11 @@ class InstagramSessionCheck
             return new InstagramCheckResult(InstagramCheckStatus::Ok, 'Instagram accepts the cookies.');
         }
 
-        if ($response->redirect() || in_array($response->status(), [401, 403], true) || ($body['require_login'] ?? false) === true) {
+        if ($response->redirect()) {
+            return $this->classifyRedirect($response);
+        }
+
+        if (in_array($response->status(), [401, 403], true) || ($body['require_login'] ?? false) === true) {
             return new InstagramCheckResult(
                 InstagramCheckStatus::CookiesInvalid,
                 'Instagram rejected the cookies (HTTP '.$response->status().($message !== '' ? ", {$message}" : '').').',
@@ -110,6 +225,36 @@ class InstagramSessionCheck
         return new InstagramCheckResult(
             InstagramCheckStatus::Inconclusive,
             'Unexpected answer from Instagram (HTTP '.$response->status().'), cannot tell if the cookies work.',
+        );
+    }
+
+    /**
+     * Only a redirect to the login page counts as a rejection. Any other
+     * redirect we could not follow is reported with its Location, so the
+     * message says what Instagram answered instead of guessing.
+     */
+    private function classifyRedirect(Response $response): InstagramCheckResult
+    {
+        $location = (string) $response->header('Location');
+        $path = (string) parse_url($location, PHP_URL_PATH);
+
+        if (str_starts_with($path, '/challenge')) {
+            return new InstagramCheckResult(
+                InstagramCheckStatus::CheckpointRequired,
+                'Instagram wants a checkpoint (challenge) for this account.',
+            );
+        }
+
+        if (str_starts_with($path, '/accounts/login')) {
+            return new InstagramCheckResult(
+                InstagramCheckStatus::CookiesInvalid,
+                'Instagram rejected the cookies (HTTP '.$response->status().', redirected to the login page).',
+            );
+        }
+
+        return new InstagramCheckResult(
+            InstagramCheckStatus::Inconclusive,
+            'Instagram answered HTTP '.$response->status().' with Location `'.($location === '' ? '(none)' : $location).'`, cannot tell if the cookies work.',
         );
     }
 
