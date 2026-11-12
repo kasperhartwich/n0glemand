@@ -15,7 +15,7 @@ use Throwable;
  * than logging in: a daily forced login risks a checkpoint, and production
  * may run on an exported cookie file it cannot recreate. A login is tried
  * only when credentials are set and the jar has no fresh cookie file, which
- * is when the download job would log in too.
+ * is when a login is due.
  */
 class InstagramSessionCheck
 {
@@ -297,7 +297,8 @@ class InstagramSessionCheck
     /**
      * The cookie file the download job would use. With credentials that is
      * the jar's own file, and a missing or stale one (older than
-     * INSTAGRAM_COOKIES_TTL) means the job logs in, so null here. Without
+     * INSTAGRAM_COOKIES_TTL) means this check logs in first (the download job
+     * never does), so null here. Without
      * credentials it is only the exported file from YTDLP_COOKIES_PATH, and
      * a leftover jar file is ignored.
      */

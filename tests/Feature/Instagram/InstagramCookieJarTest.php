@@ -175,3 +175,37 @@ it('skips the login and returns null while another worker holds the login lock',
     expect($jar->refresh())->toBeFalse();
     Http::assertNothingSent();
 });
+
+it('forces a fresh password login at most once per interval however often cookies are invalidated', function () {
+    config()->set('services.instagram.username', 'acct1');
+    config()->set('services.instagram.password', 'pw');
+    $flags = [];
+    app()->instance(InstagramLogin::class, new class($flags) implements InstagramLogin
+    {
+        public function __construct(private array &$flags) {}
+
+        public function login(string $username, string $password, bool $forceFresh = false): InstagramLoginResult
+        {
+            $this->flags[] = $forceFresh;
+
+            return new InstagramLoginResult(InstagramLoginStatus::Ok, cookiesTxt: "sessionid\tFRESH\n");
+        }
+    });
+    $jar = app(InstagramCookieJar::class);
+
+    seedCookiesFile();
+    $jar->markInvalid('rate limit');
+    $jar->refresh();
+    seedCookiesFile();
+    $jar->markInvalid('private reel');
+    $jar->refresh();
+
+    expect($flags)->toBe([true, false]);
+
+    Cache::forget('ig:login:force_fresh_throttle');
+    seedCookiesFile();
+    $jar->markInvalid('later');
+    $jar->refresh();
+
+    expect($flags)->toBe([true, false, true]);
+});

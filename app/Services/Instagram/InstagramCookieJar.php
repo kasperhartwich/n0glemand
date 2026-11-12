@@ -17,6 +17,8 @@ class InstagramCookieJar
 
     private const FORCE_FRESH_CACHE_KEY = 'ig:login:force_fresh';
 
+    private const FORCE_FRESH_THROTTLE_KEY = 'ig:login:force_fresh_throttle';
+
     public function __construct(
         private InstagramLogin $client,
     ) {}
@@ -43,6 +45,7 @@ class InstagramCookieJar
     public function cookiesModifiedAt(): ?int
     {
         $path = $this->cookiesPath();
+        clearstatcache(true, $path);
 
         return is_file($path) ? (int) filemtime($path) : null;
     }
@@ -68,11 +71,16 @@ class InstagramCookieJar
             @unlink($path);
         }
 
-        Cache::put(
-            self::FORCE_FRESH_CACHE_KEY,
-            true,
-            (int) config('services.instagram.cookies_ttl', 60 * 60 * 24 * 7),
-        );
+        // yt-dlp's auth-looking errors also come from private or deleted reels and rate limits,
+        // so a password login is forced at most once per interval; otherwise the browser reuses
+        // the profile session when Instagram still accepts it.
+        if (! Cache::has(self::FORCE_FRESH_THROTTLE_KEY)) {
+            Cache::put(
+                self::FORCE_FRESH_CACHE_KEY,
+                true,
+                (int) config('services.instagram.cookies_ttl', 60 * 60 * 24 * 7),
+            );
+        }
 
         Log::warning('instagram.cookies.invalidated', [
             'username' => $this->credentials()['username'] ?? null,
@@ -155,11 +163,17 @@ class InstagramCookieJar
      */
     private function login(array $credentials): InstagramLoginStatus
     {
-        $result = $this->client->login(
-            $credentials['username'],
-            $credentials['password'],
-            Cache::has(self::FORCE_FRESH_CACHE_KEY),
-        );
+        $forceFresh = Cache::has(self::FORCE_FRESH_CACHE_KEY);
+
+        if ($forceFresh) {
+            Cache::put(
+                self::FORCE_FRESH_THROTTLE_KEY,
+                true,
+                (int) config('services.instagram.force_fresh_interval', 60 * 60 * 6),
+            );
+        }
+
+        $result = $this->client->login($credentials['username'], $credentials['password'], $forceFresh);
 
         if (! $result->isOk() || $result->cookiesTxt === null) {
             Cache::put(

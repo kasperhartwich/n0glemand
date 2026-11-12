@@ -64,6 +64,8 @@ return [
         'login_lock_wait' => 16,
         // Lock TTL: longer than the longest login (browser_timeout plus the 10 s stop grace) with margin.
         'login_lock_ttl' => (int) env('INSTAGRAM_LOGIN_LOCK_TTL', 120),
+        // A password login after cookies were reported dead happens at most this often (seconds).
+        'force_fresh_interval' => (int) env('INSTAGRAM_FORCE_FRESH_INTERVAL', 60 * 60 * 6),
         'queue' => 'instagram',
         // Delay before an upload job retries once after queueing a login refresh.
         'refresh_retry_delay' => 120,
