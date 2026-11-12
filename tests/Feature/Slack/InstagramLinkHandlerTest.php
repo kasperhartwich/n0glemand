@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\Slack\CheckInstagramFromSlack;
 use App\Jobs\Slack\UploadInstagramMediaToThread;
 use App\Services\Instagram\InstagramCookieJar;
 use App\Services\Slack\Handlers\InstagramLinkHandler;
@@ -227,6 +228,16 @@ it('fits the worst case of one attempt inside the job timeout with 30 s to spare
     $timeout = (new UploadInstagramMediaToThread('u', 'C1', '1.2'))->timeout;
 
     expect($ytdlp + $logins + $upload)->toBeLessThanOrEqual($timeout - 30)
+        ->and($timeout)->toBeLessThan(config('queue.connections.redis.retry_after'));
+});
+
+it('fits the session check worst case inside the CheckInstagramFromSlack timeout with 30 s to spare', function () {
+    $http = (3 + 1) * config('services.instagram.login_timeout') + config('services.slack.ytdlp_timeout');
+    $login = config('services.instagram.login_lock_wait') + 2 * config('services.instagram.login_timeout');
+
+    $timeout = (new CheckInstagramFromSlack('https://hooks.slack.test/x'))->timeout;
+
+    expect(max($http, $login))->toBeLessThanOrEqual($timeout - 30)
         ->and($timeout)->toBeLessThan(config('queue.connections.redis.retry_after'));
 });
 

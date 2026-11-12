@@ -2,6 +2,7 @@
 
 namespace App\Services\Instagram;
 
+use App\Jobs\Slack\AnnounceInstagramCheckpoint;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
@@ -155,7 +156,7 @@ class InstagramCookieJar
             ]);
 
             if ($result->status === InstagramLoginStatus::CheckpointRequired) {
-                app(InstagramCheckpointChallenge::class)->announce();
+                AnnounceInstagramCheckpoint::dispatch();
             }
 
             return $result->status === InstagramLoginStatus::Ok
