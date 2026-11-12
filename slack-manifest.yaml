@@ -3,6 +3,10 @@ display_information:
   description: n0glemand
   background_color: "#0a0a0a"
 features:
+  app_home:
+    home_tab_enabled: false
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
   bot_user:
     display_name: n0glemand
     always_online: true
@@ -19,6 +23,7 @@ oauth_config:
       - files:write
       - channels:history
       - groups:history
+      - im:history
       - channels:join
       - channels:read
       - app_mentions:read
@@ -28,6 +33,7 @@ settings:
     bot_events:
       - message.channels
       - message.groups
+      - message.im
       - channel_created
   org_deploy_enabled: false
   socket_mode_enabled: false

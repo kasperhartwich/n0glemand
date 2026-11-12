@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Services\Slack\AdminDirectMessages;
 use App\Services\Slack\Handlers\InstagramLinkHandler;
 use App\Services\Slack\Handlers\PingHandler;
 use App\Services\Slack\Handlers\SpotifyLinkHandler;
@@ -27,7 +28,7 @@ class SlackServiceProvider extends ServiceProvider
 
         $this->app->bind(
             SlackEventRouter::class,
-            fn (Application $app) => new SlackEventRouter($app->tagged('slack.handlers')),
+            fn (Application $app) => new SlackEventRouter($app->tagged('slack.handlers'), $app->make(AdminDirectMessages::class)),
         );
     }
 }

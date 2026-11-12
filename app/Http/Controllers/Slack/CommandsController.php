@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Slack;
 use App\Http\Controllers\Controller;
 use App\Jobs\Slack\CheckInstagramFromSlack;
 use App\Jobs\Slack\RefreshInstagramCookiesFromSlack;
-use App\Services\Instagram\InstagramCookieJar;
+use App\Services\Instagram\InstagramStatusReport;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -61,6 +61,7 @@ class CommandsController extends Controller
             '• `/n0glemand instagram check` (admins only): check that Instagram still accepts the cookies',
             '• `/n0glemand instagram refresh` (admins only): force a fresh Instagram login',
             '• `/n0glemand help`: show this message',
+            '• Admins can send the same `instagram status|check|refresh` words to the bot as a direct message',
             '',
             '*In-channel (no slash command):*',
             '• Send `ping`: quick liveness check (bot replies `pong`)',
@@ -85,29 +86,16 @@ class CommandsController extends Controller
         $action = strtolower(trim($args));
 
         return match ($action) {
-            'status' => $this->instagramStatus(app(InstagramCookieJar::class)),
+            'status' => $this->instagramStatus(app(InstagramStatusReport::class)),
             'check' => $this->instagramCheck((string) $request->input('response_url', '')),
             'refresh' => $this->instagramRefresh((string) $request->input('response_url', '')),
             default => $this->ephemeral('Usage: `/n0glemand instagram status`, `instagram check` or `instagram refresh`.'),
         };
     }
 
-    protected function instagramStatus(InstagramCookieJar $jar): JsonResponse
+    protected function instagramStatus(InstagramStatusReport $report): JsonResponse
     {
-        $age = $jar->cookiesAgeSeconds();
-        $ttl = (int) config('services.instagram.cookies_ttl', 60 * 60 * 24 * 7);
-        $cooldown = $jar->cooldownStatus();
-
-        $lines = [
-            '*Instagram status*',
-            '• Credentials: '.($jar->credentials() === null ? 'not configured' : 'configured'),
-            '• Cookie file: '.($age === null
-                ? 'missing'
-                : 'present, '.$this->humanSeconds($age).' old'.($age > $ttl ? ' (expired)' : '')),
-            '• Login cooldown: '.($cooldown === null ? 'not active' : "active after `{$cooldown}`"),
-        ];
-
-        return $this->ephemeral(implode("\n", $lines));
+        return $this->ephemeral($report->text());
     }
 
     protected function instagramCheck(string $responseUrl): JsonResponse
@@ -130,16 +118,6 @@ class CommandsController extends Controller
         RefreshInstagramCookiesFromSlack::dispatch($responseUrl);
 
         return $this->ephemeral(':hourglass_flowing_sand: Refreshing the Instagram login, the result follows here.');
-    }
-
-    protected function humanSeconds(int $seconds): string
-    {
-        return match (true) {
-            $seconds < 120 => "{$seconds} s",
-            $seconds < 7200 => intdiv($seconds, 60).' min',
-            $seconds < 172800 => intdiv($seconds, 3600).' h',
-            default => intdiv($seconds, 86400).' days',
-        };
     }
 
     protected function logs(string $args): JsonResponse

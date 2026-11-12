@@ -2,23 +2,27 @@
 
 namespace App\Jobs\Slack;
 
+use App\Jobs\Slack\Concerns\RepliesToSlack;
 use App\Services\Instagram\InstagramSessionCheck;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
 class CheckInstagramFromSlack implements ShouldQueue
 {
     use Queueable;
+    use RepliesToSlack;
+
+    private const REPLY_FAILED_LOG = 'slack.instagram_check.reply_failed';
 
     public int $tries = 1;
 
     public int $timeout = 60;
 
     public function __construct(
-        public string $responseUrl,
+        public string $responseUrl = '',
+        public ?string $dmChannel = null,
     ) {}
 
     /**
@@ -43,18 +47,5 @@ class CheckInstagramFromSlack implements ShouldQueue
         Log::error('slack.instagram_check.job_failed', ['exception' => $e->getMessage()]);
 
         $this->reply(':x: Instagram check crashed. See `/n0glemand logs`.');
-    }
-
-    protected function reply(string $text): void
-    {
-        try {
-            Http::timeout(10)->post($this->responseUrl, [
-                'response_type' => 'ephemeral',
-                'replace_original' => false,
-                'text' => $text,
-            ]);
-        } catch (Throwable $e) {
-            Log::warning('slack.instagram_check.reply_failed', ['exception' => $e->getMessage()]);
-        }
     }
 }

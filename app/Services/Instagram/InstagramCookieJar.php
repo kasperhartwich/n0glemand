@@ -154,6 +154,10 @@ class InstagramCookieJar
                 'message' => $result->errorMessage,
             ]);
 
+            if ($result->status === InstagramLoginStatus::CheckpointRequired) {
+                app(InstagramCheckpointChallenge::class)->announce();
+            }
+
             return $result->status === InstagramLoginStatus::Ok
                 ? InstagramLoginStatus::Unknown
                 : $result->status;

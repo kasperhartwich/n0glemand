@@ -11,7 +11,10 @@ class SlackEventRouter
     /**
      * @param  iterable<MessageHandler>  $handlers
      */
-    public function __construct(protected iterable $handlers) {}
+    public function __construct(
+        protected iterable $handlers,
+        protected AdminDirectMessages $directMessages,
+    ) {}
 
     /**
      * @param  array<string, mixed>  $payload
@@ -43,6 +46,12 @@ class SlackEventRouter
                 'subtype' => $subtype,
                 'bot_id' => $event['bot_id'] ?? null,
             ]);
+
+            return;
+        }
+
+        if (($event['channel_type'] ?? null) === 'im') {
+            $this->directMessages->handle($event);
 
             return;
         }
