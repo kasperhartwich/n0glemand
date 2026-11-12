@@ -6,7 +6,7 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Throwable;
 
-class InstagramLoginClient
+class InstagramLoginClient implements InstagramLogin
 {
     private const LOGIN_PAGE_URL = 'https://www.instagram.com/accounts/login/';
 

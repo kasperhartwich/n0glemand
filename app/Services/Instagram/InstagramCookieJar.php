@@ -16,7 +16,7 @@ class InstagramCookieJar
     private const LOGIN_LOCK_KEY = 'ig:login';
 
     public function __construct(
-        private InstagramLoginClient $client,
+        private InstagramLogin $client,
     ) {}
 
     public function pickCookiesPath(): ?string

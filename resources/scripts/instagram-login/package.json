@@ -1,0 +1,9 @@
+{
+    "name": "n0glemand-instagram-login",
+    "private": true,
+    "type": "module",
+    "description": "Headless browser login for Instagram, started by InstagramBrowserLoginClient. Kept apart from the app's Vite build.",
+    "dependencies": {
+        "playwright": "1.65.0"
+    }
+}
