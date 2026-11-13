@@ -212,8 +212,9 @@ return [
             'nice' => 0,
         ],
 
-        // Logins (headless browser, up to a minute and later a long wait for a code) run apart
-        // from the download jobs: one process, so two logins never run at once.
+        // Logins (headless browser, up to a minute plus a wait for a code, INSTAGRAM_CODE_WAIT) run apart
+        // from the download jobs: one process, so two logins never run at once. The timeout must stay
+        // below queue.connections.redis.retry_after (REDIS_QUEUE_RETRY_AFTER) and above the jobs' $timeout.
         'supervisor-instagram' => [
             'connection' => 'redis',
             'queue' => ['instagram'],

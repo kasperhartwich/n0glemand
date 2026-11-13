@@ -17,6 +17,7 @@ beforeEach(function () {
     config()->set('services.instagram.browser_dir', null);
     config()->set('services.instagram.node_binary', 'node');
     config()->set('services.instagram.browser_timeout', 50);
+    config()->set('services.instagram.code_wait', 600);
 });
 
 function browserLogin(): InstagramLoginResult
@@ -134,7 +135,7 @@ it('passes the credentials in the environment and never in argv', function () {
             && $process->environment['INSTAGRAM_LOGIN_USERNAME'] === 'kasper'
             && $process->environment['INSTAGRAM_LOGIN_PASSWORD'] === 'hunter2'
             && $process->environment['INSTAGRAM_PROFILE_DIR'] === storage_path('app/private/instagram-browser')
-            && $process->timeout === 50;
+            && $process->timeout === 650;
     });
 });
 

@@ -60,10 +60,16 @@ return [
         'browser_dir' => env('INSTAGRAM_BROWSER_DIR'),
         'node_binary' => env('INSTAGRAM_NODE_BINARY', 'node'),
         'browser_timeout' => (int) env('INSTAGRAM_BROWSER_TIMEOUT', 50),
+        // sms or email: which way a challenge page is asked to send its code.
+        'challenge_method' => env('INSTAGRAM_CHALLENGE_METHOD', 'sms'),
+        // Seconds a login waits for a code (or an approval in the app) after Instagram asks for
+        // one. 0 turns the wait off: a challenge then ends the login as checkpoint_required.
+        'code_wait' => (int) env('INSTAGRAM_CODE_WAIT', 600),
         'login_timeout' => 8,
         'login_lock_wait' => 16,
-        // Lock TTL: longer than the longest login (browser_timeout plus the 10 s stop grace) with margin.
-        'login_lock_ttl' => (int) env('INSTAGRAM_LOGIN_LOCK_TTL', 120),
+        // Lock TTL: longer than the longest login (browser_timeout plus code_wait plus the 10 s
+        // stop grace) with margin.
+        'login_lock_ttl' => (int) env('INSTAGRAM_LOGIN_LOCK_TTL', 720),
         // A password login after cookies were reported dead happens at most this often (seconds).
         'force_fresh_interval' => (int) env('INSTAGRAM_FORCE_FRESH_INTERVAL', 60 * 60 * 6),
         'queue' => 'instagram',

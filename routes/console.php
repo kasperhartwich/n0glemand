@@ -14,6 +14,13 @@ Schedule::command('slack:join-all-public --sleep=1')
     ->dailyAt('03:00')
     ->withoutOverlapping(120)
     ->runInBackground();
+// Queues a login while the cookies are over 3 days old, so a reel rarely waits on one and a code
+// request reaches the admins now, not in the middle of a download.
+Schedule::command('instagram:refresh --if-older-than=72')
+    ->dailyAt('03:30')
+    ->timezone('UTC')
+    ->onOneServer()
+    ->withoutOverlapping(10);
 Schedule::command('instagram:check --notify')
     ->dailyAt('09:00')
     ->timezone('Europe/Copenhagen')

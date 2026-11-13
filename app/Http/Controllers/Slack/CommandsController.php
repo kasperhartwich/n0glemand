@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Slack;
 use App\Http\Controllers\Controller;
 use App\Jobs\Slack\CheckInstagramFromSlack;
 use App\Jobs\Slack\RefreshInstagramCookiesFromSlack;
+use App\Services\Instagram\InstagramCheckpointChallenge;
 use App\Services\Instagram\InstagramStatusReport;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,7 +19,7 @@ class CommandsController extends Controller
 
         Log::info('slack.command.received', [
             'command' => $command,
-            'text' => $request->input('text'),
+            'text' => $this->redacted((string) $request->input('text', '')),
             'user_id' => $request->input('user_id'),
             'channel_id' => $request->input('channel_id'),
         ]);
@@ -36,6 +37,14 @@ class CommandsController extends Controller
             'instagram' => $this->instagram($request, $args),
             default => $this->ephemeral("Unknown subcommand `{$subcommand}`. Try `/n0glemand help`."),
         };
+    }
+
+    /**
+     * The text for the log: a login code is never written down.
+     */
+    protected function redacted(string $text): string
+    {
+        return preg_replace('/^(\s*instagram\s+code\s+).*$/i', '$1[redacted]', $text) ?? $text;
     }
 
     /**
@@ -57,11 +66,12 @@ class CommandsController extends Controller
         $lines = [
             '*n0glemand commands*',
             '• `/n0glemand logs [N]`: tail the last N lines (default 50, max 200) of `laravel.log`',
-            '• `/n0glemand instagram status` (admins only): cookie file age and login cooldown',
+            '• `/n0glemand instagram status` (admins only): login driver, cookie file age, login cooldown and whether a login waits for a code',
             '• `/n0glemand instagram check` (admins only): check that Instagram still accepts the cookies',
             '• `/n0glemand instagram refresh` (admins only): force a fresh Instagram login',
+            '• `/n0glemand instagram code <digits>` (admins only): hand Instagram the code (SMS, email or authenticator) a waiting login asked for',
             '• `/n0glemand help`: show this message',
-            '• Admins can send the same `instagram status|check|refresh` words to the bot as a direct message',
+            '• Admins can send the same `instagram status|check|refresh|code` words to the bot as a direct message, or just the digits of a code',
             '',
             '*In-channel (no slash command):*',
             '• Send `ping`: quick liveness check (bot replies `pong`)',
@@ -85,11 +95,17 @@ class CommandsController extends Controller
 
         $action = strtolower(trim($args));
 
+        if (preg_match('/^code(?:\s+(\S+))?$/', $action, $matches) === 1) {
+            return $this->ephemeral(isset($matches[1])
+                ? app(InstagramCheckpointChallenge::class)->handOverCode($matches[1])
+                : 'Usage: `/n0glemand instagram code <digits>` (4 to 8 digits).');
+        }
+
         return match ($action) {
             'status' => $this->instagramStatus(app(InstagramStatusReport::class)),
             'check' => $this->instagramCheck((string) $request->input('response_url', '')),
             'refresh' => $this->instagramRefresh((string) $request->input('response_url', '')),
-            default => $this->ephemeral('Usage: `/n0glemand instagram status`, `instagram check` or `instagram refresh`.'),
+            default => $this->ephemeral('Usage: `/n0glemand instagram status`, `instagram check`, `instagram refresh` or `instagram code <digits>`.'),
         };
     }
 

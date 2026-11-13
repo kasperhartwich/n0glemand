@@ -97,9 +97,10 @@ class InstagramCookieJar
 
     /**
      * Forces a fresh login. Returns how it went, or null when no credentials
-     * are configured or the login lock stayed taken.
+     * are configured or the login lock stayed taken. `$waitForCode` false is for
+     * callers that cannot wait minutes for an admin to hand over a code.
      */
-    public function refreshStatus(): ?InstagramLoginStatus
+    public function refreshStatus(bool $waitForCode = true): ?InstagramLoginStatus
     {
         $credentials = $this->credentials();
 
@@ -109,7 +110,7 @@ class InstagramCookieJar
             return null;
         }
 
-        return $this->withLoginLock(fn (): InstagramLoginStatus => $this->login($credentials));
+        return $this->withLoginLock(fn (): InstagramLoginStatus => $this->login($credentials, $waitForCode));
     }
 
     /**
@@ -161,7 +162,7 @@ class InstagramCookieJar
     /**
      * @param  array{username: string, password: string}  $credentials
      */
-    private function login(array $credentials): InstagramLoginStatus
+    private function login(array $credentials, bool $waitForCode): InstagramLoginStatus
     {
         $forceFresh = Cache::has(self::FORCE_FRESH_CACHE_KEY);
 
@@ -173,7 +174,7 @@ class InstagramCookieJar
             );
         }
 
-        $result = $this->client->login($credentials['username'], $credentials['password'], $forceFresh);
+        $result = $this->client->login($credentials['username'], $credentials['password'], $forceFresh, $waitForCode);
 
         if (! $result->isOk() || $result->cookiesTxt === null) {
             Cache::put(

@@ -22,16 +22,21 @@ class RefreshInstagramLogin implements ShouldBeUnique, ShouldQueue
     public int $tries = 1;
 
     /**
-     * Covers a contended login: the lock wait, the longest login (browser
-     * timeout plus its 10 s stop grace) and the rest at least 30 s to spare,
-     * below the queue's retry_after (see the budget test).
+     * Covers a contended login that waits for a code: the lock wait, the
+     * longest login (browser timeout plus the code wait plus its 10 s stop
+     * grace) and the rest, at least 30 s to spare. It stays below Horizon's
+     * timeout for the `instagram` queue, which stays below the queue's
+     * retry_after, so Redis never hands a running login out a second time
+     * (see the budget test).
      */
-    public int $timeout = 150;
+    public int $timeout = 800;
 
     /**
-     * Seconds the uniqueness lock outlives a job that died without releasing it.
+     * Seconds the uniqueness lock outlives a job that died without releasing
+     * it: longer than the job may run, or a second login could be queued
+     * while the first still waits for its code.
      */
-    public int $uniqueFor = 300;
+    public int $uniqueFor = 900;
 
     public function __construct()
     {

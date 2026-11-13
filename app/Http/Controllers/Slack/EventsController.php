@@ -25,7 +25,8 @@ class EventsController extends Controller
             'event_id' => $payload['event_id'] ?? null,
             'channel' => $event['channel'] ?? null,
             'user' => $event['user'] ?? null,
-            'text' => isset($event['text']) ? mb_substr((string) $event['text'], 0, 200) : null,
+            // A direct message may carry an Instagram login code: never log its text.
+            'text' => isset($event['text']) && ($event['channel_type'] ?? null) !== 'im' ? mb_substr((string) $event['text'], 0, 200) : null,
             'subtype' => $event['subtype'] ?? null,
             'bot_id' => $event['bot_id'] ?? null,
         ]);

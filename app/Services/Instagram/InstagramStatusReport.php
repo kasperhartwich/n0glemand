@@ -10,6 +10,7 @@ class InstagramStatusReport
 {
     public function __construct(
         private InstagramCookieJar $jar,
+        private InstagramCheckpointChallenge $challenge,
     ) {}
 
     public function text(): string
@@ -20,12 +21,23 @@ class InstagramStatusReport
 
         return implode("\n", [
             '*Instagram status*',
+            '• Login driver: `'.($this->driver()).'`',
             '• Credentials: '.($this->jar->credentials() === null ? 'not configured' : 'configured'),
             '• Cookie file: '.($age === null
                 ? 'missing'
                 : 'present, '.$this->humanSeconds($age).' old'.($age > $ttl ? ' (expired)' : '')),
             '• Login cooldown: '.($cooldown === null ? 'not active' : "active after `{$cooldown}`"),
+            '• Waiting for a human: '.match ($this->challenge->waitingFor()) {
+                'code' => 'yes, a login waits for a code (reply with the digits)',
+                'approval' => 'yes, a login waits for an approval in the Instagram app',
+                default => 'no',
+            },
         ]);
+    }
+
+    private function driver(): string
+    {
+        return config('services.instagram.login_driver') === 'browser' ? 'browser' : 'http';
     }
 
     private function humanSeconds(int $seconds): string

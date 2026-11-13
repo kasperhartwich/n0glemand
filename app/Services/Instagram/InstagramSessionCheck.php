@@ -276,7 +276,7 @@ class InstagramSessionCheck
             );
         }
 
-        $status = $this->jar->refreshStatus();
+        $status = $this->jar->refreshStatus(waitForCode: false);
 
         return match ($status) {
             InstagramLoginStatus::Ok => new InstagramCheckResult(

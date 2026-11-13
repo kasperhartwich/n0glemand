@@ -94,7 +94,7 @@ it('markInvalid deletes the file without a cooldown and the next login is told t
     {
         public function __construct(private array &$flags) {}
 
-        public function login(string $username, string $password, bool $forceFresh = false): InstagramLoginResult
+        public function login(string $username, string $password, bool $forceFresh = false, bool $waitForCode = true): InstagramLoginResult
         {
             $this->flags[] = $forceFresh;
 
@@ -184,7 +184,7 @@ it('forces a fresh password login at most once per interval however often cookie
     {
         public function __construct(private array &$flags) {}
 
-        public function login(string $username, string $password, bool $forceFresh = false): InstagramLoginResult
+        public function login(string $username, string $password, bool $forceFresh = false, bool $waitForCode = true): InstagramLoginResult
         {
             $this->flags[] = $forceFresh;
 

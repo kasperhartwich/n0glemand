@@ -301,10 +301,12 @@ it('fits the worst case of one attempt inside the job timeout with 30 s to spare
 });
 
 it('fits a contended login inside the refresh jobs timeouts with 30 s to spare, and below retry_after', function (object $job) {
-    $browserLogin = config('services.instagram.browser_timeout') + 10;
+    $browserLogin = config('services.instagram.browser_timeout') + config('services.instagram.code_wait') + 10;
     $worst = config('services.instagram.login_lock_wait') + $browserLogin + 10;
 
     expect($worst)->toBeLessThanOrEqual($job->timeout - 30)
+        ->and($job->timeout)->toBeLessThan(config('horizon.defaults.supervisor-instagram.timeout'))
+        ->and(config('horizon.defaults.supervisor-instagram.timeout'))->toBeLessThan(config('queue.connections.redis.retry_after'))
         ->and($job->timeout)->toBeLessThan(config('queue.connections.redis.retry_after'))
         ->and($job->queue)->toBe('instagram');
 })->with([

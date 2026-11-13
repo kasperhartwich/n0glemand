@@ -20,11 +20,13 @@ class RefreshInstagramCookiesFromSlack implements ShouldQueue
     public int $tries = 1;
 
     /**
-     * A forced login that waits for a contended login lock: the lock wait, the
-     * longest login (browser timeout plus its 10 s stop grace) and the Slack
-     * reply, at least 30 s to spare (see the budget test).
+     * A forced login that waits for a contended login lock and then for a
+     * code: the lock wait, the longest login (browser timeout plus the code
+     * wait plus its 10 s stop grace) and the Slack reply, at least 30 s to
+     * spare, below Horizon's timeout and the queue's retry_after (see the
+     * budget test).
      */
-    public int $timeout = 150;
+    public int $timeout = 800;
 
     public function __construct(
         public string $responseUrl = '',

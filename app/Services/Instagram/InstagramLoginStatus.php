@@ -8,5 +8,7 @@ enum InstagramLoginStatus: string
     case InvalidCredentials = 'invalid_credentials';
     case TwoFactorRequired = 'two_factor_required';
     case CheckpointRequired = 'checkpoint_required';
+    case InvalidCode = 'invalid_code';
+    case Timeout = 'timeout';
     case Unknown = 'unknown';
 }

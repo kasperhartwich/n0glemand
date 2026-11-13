@@ -3,6 +3,7 @@
 use App\Jobs\Slack\CheckInstagramFromSlack;
 use App\Jobs\Slack\PostPingReply;
 use App\Jobs\Slack\RefreshInstagramCookiesFromSlack;
+use App\Services\Instagram\InstagramCheckpointChallenge;
 use App\Services\Instagram\InstagramCookieJar;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
@@ -24,6 +25,8 @@ beforeEach(function () {
     config()->set('services.instagram.cookies_ttl', 86400);
 
     File::delete(app(InstagramCookieJar::class)->cookiesPath());
+    $this->codeFile = app(InstagramCheckpointChallenge::class)->codeFilePath();
+    File::delete($this->codeFile);
     Http::fake(['https://slack.com/api/chat.postMessage' => Http::response(['ok' => true])]);
 });
 
@@ -136,38 +139,56 @@ it('DMs the admins once when a login ends in a checkpoint', function () {
     $sent = Http::recorded(fn ($request) => $request->url() === 'https://slack.com/api/chat.postMessage');
     expect($sent)->toHaveCount(2)
         ->and($sent->map(fn ($pair) => $pair[0]['channel'])->values()->all())->toBe(['UADMIN', 'UADMIN2'])
-        ->and($sent->values()->first()[0]['text'])->toContain('reply here with the code');
+        ->and($sent->values()->first()[0]['text'])->toContain('wants a checkpoint');
 });
 
-it('keeps an admin code in the cache and says it cannot submit it', function () {
-    Cache::put('ig:checkpoint:awaiting', true, 600);
+it('hands an admin code to the waiting login through the code file', function () {
+    Cache::put('ig:checkpoint:awaiting', 'code', 600);
 
     postDm('123456')->assertNoContent();
 
-    expect(Cache::get('ig:checkpoint:code'))->toBe('123456');
-    assertDmReply(fn ($t) => str_contains($t, "can't submit it to Instagram") && str_contains($t, 'instagram refresh'));
+    expect(file_get_contents($this->codeFile))->toBe('123456')
+        ->and(substr(sprintf('%o', fileperms($this->codeFile)), -4))->toBe('0600');
+    assertDmReply(fn ($t) => str_contains($t, 'Handed the code'));
 });
 
-it('ignores a code when no checkpoint is waiting for one', function () {
+it('accepts `instagram code 123456` in a DM too', function () {
+    Cache::put('ig:checkpoint:awaiting', 'code', 600);
+
+    postDm('/n0glemand instagram code 654321')->assertNoContent();
+
+    expect(file_get_contents($this->codeFile))->toBe('654321');
+});
+
+it('ignores a code when no login is waiting for one', function () {
     postDm('123456')->assertNoContent();
 
-    expect(Cache::get('ig:checkpoint:code'))->toBeNull();
-    assertDmReply(fn ($t) => str_contains($t, 'No Instagram checkpoint is waiting'));
+    expect(file_exists($this->codeFile))->toBeFalse();
+    assertDmReply(fn ($t) => str_contains($t, 'No Instagram login is waiting'));
+});
+
+it('says an approval is not a code', function () {
+    Cache::put('ig:checkpoint:awaiting', 'approval', 600);
+
+    postDm('123456')->assertNoContent();
+
+    expect(file_exists($this->codeFile))->toBeFalse();
+    assertDmReply(fn ($t) => str_contains($t, 'approval'));
 });
 
 it('does not take a non-admin number as a code', function () {
-    Cache::put('ig:checkpoint:awaiting', true, 600);
+    Cache::put('ig:checkpoint:awaiting', 'code', 600);
 
     postDm('123456', 'UOTHER')->assertNoContent();
 
-    expect(Cache::get('ig:checkpoint:code'))->toBeNull();
+    expect(file_exists($this->codeFile))->toBeFalse();
 });
 
 it('does not take digits of the wrong length as a code', function () {
-    Cache::put('ig:checkpoint:awaiting', true, 600);
+    Cache::put('ig:checkpoint:awaiting', 'code', 600);
 
     postDm('123')->assertNoContent();
-    postDm('123456789', eventId: 'EvDm2')->assertNoContent();
+    postDm('instagram code 123456789', eventId: 'EvDm2')->assertNoContent();
 
-    expect(Cache::get('ig:checkpoint:code'))->toBeNull();
+    expect(file_exists($this->codeFile))->toBeFalse();
 });

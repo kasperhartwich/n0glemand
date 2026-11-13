@@ -12,8 +12,9 @@ use Throwable;
 /**
  * Direct messages to the bot. Only admins (`services.slack.admin_user_ids`)
  * may talk to it here: `instagram status|check|refresh`, with or without a
- * leading `/n0glemand`, and a bare 4 to 8 digit message, which is taken as an
- * Instagram checkpoint code. Replies go to the DM. No channel handler runs.
+ * leading `/n0glemand`, `instagram code <digits>`, and a bare 4 to 8 digit
+ * message, which is taken as the code a waiting Instagram login asked for
+ * (handed to its browser by `InstagramCheckpointChallenge`). Replies go to the DM. No channel handler runs.
  */
 class AdminDirectMessages
 {
@@ -45,7 +46,13 @@ class AdminDirectMessages
         $text = trim((string) ($event['text'] ?? ''));
 
         if (preg_match('/^\d{4,8}$/', $text) === 1) {
-            $this->say($channel, $this->code($text));
+            $this->say($channel, $this->checkpoint->handOverCode($text));
+
+            return;
+        }
+
+        if (preg_match('#^(?:/?n0glemand\s+)?instagram\s+code\s+(\S+)$#i', $text, $matches) === 1) {
+            $this->say($channel, $this->checkpoint->handOverCode($matches[1]));
 
             return;
         }
@@ -68,10 +75,10 @@ class AdminDirectMessages
             ),
             default => $this->say($channel, implode("\n", [
                 '*n0glemand direct messages (admins only)*',
-                '• `instagram status`: cookie file age and login cooldown',
+                '• `instagram status`: login driver, cookie file age, login cooldown and whether a login waits for a code',
                 '• `instagram check`: check that Instagram still accepts the cookies',
                 '• `instagram refresh`: force a fresh Instagram login',
-                '• a bare 4 to 8 digit code: the Instagram checkpoint code, when I asked for one',
+                '• a bare 4 to 8 digit code (or `instagram code 123456`): the code a waiting Instagram login asked for',
             ])),
         };
     }
@@ -86,18 +93,6 @@ class AdminDirectMessages
         }
 
         return null;
-    }
-
-    private function code(string $code): string
-    {
-        if (! $this->checkpoint->isAwaitingCode()) {
-            return 'No Instagram checkpoint is waiting for a code right now, so I ignored it.';
-        }
-
-        $this->checkpoint->receiveCode($code);
-
-        return ":warning: Got the code, but I can't submit it to Instagram: the checkpoint needs a browser. "
-            .'Confirm the challenge on instagram.com, then send `instagram refresh`. I only keep the code for 10 minutes.';
     }
 
     private function dispatchAndAck(string $channel, string $ack, callable $dispatch): void

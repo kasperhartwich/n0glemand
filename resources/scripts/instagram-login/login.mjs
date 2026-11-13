@@ -7,14 +7,23 @@
 //   INSTAGRAM_BROWSER_DIR      folder that holds node_modules/playwright (default: this folder)
 //   INSTAGRAM_FORCE_FRESH      "1": drop the profile's session cookies first and sign in again
 //   INSTAGRAM_LOGIN_TIMEOUT    seconds before the script gives up by itself (default 40)
+//   INSTAGRAM_CODE_WAIT        seconds to wait for a code or an approval once Instagram asks for
+//                              one (default 0: a challenge then ends as checkpoint_required)
+//   INSTAGRAM_CHALLENGE_METHOD sms (default) or email: how a challenge page is asked to send its code
 //   PLAYWRIGHT_BROWSERS_PATH   where `playwright install` put Chromium
 //
-// Output: {"status":"ok","cookies":[...]} or {"status":"<status>","message":"..."}
-// with status ok | invalid_credentials | checkpoint_required |
-// two_factor_required | unknown. Never prints the password or a cookie value
-// anywhere but the ok line's cookie list. In this version a challenge only
-// reports checkpoint_required; the code wait comes later.
+// Output: ONE final line {"status":"ok","cookies":[...]} or
+// {"status":"<status>","message":"..."} with status ok | invalid_credentials |
+// checkpoint_required | two_factor_required | invalid_code | timeout | unknown.
+// Before it, while the browser waits for a human, event lines without a status:
+//   {"event":"code_required","method":"sms|email|app"}   a code is wanted
+//   {"event":"approval_required"}                        approve the login in the Instagram app
+// The code arrives as digits in the file `code` inside INSTAGRAM_PROFILE_DIR
+// (written 0600 by the app); the script types it in and deletes the file.
+// Never prints the password, a code or a cookie value anywhere but the ok
+// line's cookie list.
 
+import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,6 +35,10 @@ const profileDir = process.env.INSTAGRAM_PROFILE_DIR ?? '';
 const browserDir = process.env.INSTAGRAM_BROWSER_DIR || here;
 const forceFresh = process.env.INSTAGRAM_FORCE_FRESH === '1';
 const timeoutMs = Math.max(5, Number(process.env.INSTAGRAM_LOGIN_TIMEOUT) || 40) * 1000;
+
+const codeWaitMs = Math.max(0, Number(process.env.INSTAGRAM_CODE_WAIT) || 0) * 1000;
+const challengeMethod = process.env.INSTAGRAM_CHALLENGE_METHOD === 'email' ? 'email' : 'sms';
+const codeFile = path.join(profileDir, 'code');
 
 const LOGIN_URL = 'https://www.instagram.com/accounts/login/';
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
@@ -122,6 +135,121 @@ async function classify(page, context) {
     return null;
 }
 
+const CODE_INPUT = 'input[name="security_code"], input[name="verificationCode"], input[autocomplete="one-time-code"], input[name="email_confirmation_code"]';
+
+async function pageText(page) {
+    return ((await page.locator('body').innerText({ timeout: 2000 }).catch(() => '')) ?? '').toLowerCase();
+}
+
+/** The digits an admin handed over, or null. The file is deleted either way. */
+function takeCode() {
+    try {
+        const code = fs.readFileSync(codeFile, 'utf8').trim();
+
+        fs.unlinkSync(codeFile);
+
+        return /^\d{4,8}$/.test(code) ? code : null;
+    } catch {
+        return null;
+    }
+}
+
+function dropCodeFile() {
+    try {
+        fs.unlinkSync(codeFile);
+    } catch {
+        // None there.
+    }
+}
+
+/** Presses the first visible button or link whose text matches, true when one was pressed. */
+async function press(page, pattern) {
+    const target = page.locator('button, [role="button"], a, label').filter({ hasText: pattern }).first();
+
+    try {
+        await target.click({ timeout: 3000 });
+
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Instagram wants a human. Works out what the challenge page asks for, tells
+ * the app (event line) and waits up to INSTAGRAM_CODE_WAIT for a code in the
+ * code file (typed in, then the page is judged again) or for the page to move
+ * on by itself (approval in the Instagram app). Returns a final outcome.
+ */
+async function waitForHuman(page, context) {
+    const waitDeadline = Date.now() + codeWaitMs;
+    dropCodeFile();
+
+    let kind = null;
+    let method = challengeMethod;
+
+    // A challenge may first offer a choice of where to send the code: pick ours and send.
+    if ((await page.locator(CODE_INPUT).count()) === 0) {
+        const text = await pageText(page);
+
+        if (/was this you|approve|check your .*(app|device)|we sent a notification|waiting for approval/.test(text) && (await page.locator('input').count()) === 0) {
+            kind = 'approval';
+        } else {
+            await press(page, challengeMethod === 'email' ? /email/i : /text message|sms|phone/i);
+            await press(page, /^\s*(send (security )?code|send|continue|next)\s*$/i);
+            await page.waitForSelector(CODE_INPUT, { timeout: 8000 }).catch(() => {});
+        }
+    }
+
+    if (kind === null) {
+        if ((await page.locator(CODE_INPUT).count()) === 0) {
+            return { status: 'checkpoint_required', message: `Instagram asked for a challenge this script cannot work with on ${safeUrl(page)}.` };
+        }
+
+        const text = await pageText(page);
+
+        method = /authentication app|authenticator/.test(text) ? 'app' : /email/.test(text) && !/text message|sms/.test(text) ? 'email' : /text message|sms|phone/.test(text) ? 'sms' : challengeMethod;
+        kind = 'code';
+    }
+
+    emit(kind === 'approval' ? { event: 'approval_required' } : { event: 'code_required', method });
+
+    while (Date.now() < waitDeadline) {
+        await sleep(1000);
+
+        if (kind === 'code') {
+            const code = takeCode();
+
+            if (code === null) {
+                continue;
+            }
+
+            await page.fill(CODE_INPUT, code);
+            await page.keyboard.press('Enter');
+            await sleep(500);
+
+            // Wait for Instagram's verdict: a session, or the code input still there with an error.
+            const verdictDeadline = Math.min(Date.now() + 15000, waitDeadline);
+
+            while (Date.now() < verdictDeadline) {
+                await sleep(500);
+
+                if (hasLiveSession(await context.cookies()) && !/\/challenge\b|two_factor/.test(page.url())) {
+                    return { status: 'ok' };
+                }
+            }
+
+            return { status: 'invalid_code', message: `Instagram did not accept the code on ${safeUrl(page)}.` };
+        }
+
+        if (hasLiveSession(await context.cookies()) && !/\/challenge\b/.test(page.url())) {
+            return { status: 'ok' };
+        }
+    }
+
+    return { status: 'timeout', message: `Nobody ${kind === 'code' ? 'sent a code' : 'approved the login'} in time.` };
+}
+
 if (username === '' || password === '' || profileDir === '') {
     await finish({ status: 'unknown', message: 'The login script got no credentials or profile directory.' }, 2);
 }
@@ -180,9 +308,14 @@ try {
     }
 
     if ((await page.locator('input[name="username"]').count()) === 0) {
-        const outcome = reused ?? { status: 'unknown', message: `No login form on ${safeUrl(page)}.` };
+        let outcome = reused ?? { status: 'unknown', message: `No login form on ${safeUrl(page)}.` };
 
-        await finish(outcome);
+        // The profile may already sit on a challenge page: wait for the human there as well.
+        if (codeWaitMs > 0 && (outcome.status === 'checkpoint_required' || outcome.status === 'two_factor_required')) {
+            outcome = await waitForHuman(page, context);
+        }
+
+        await finish(outcome.status === 'ok' ? { status: 'ok', cookies: instagramCookies(await context.cookies()) } : outcome);
     }
 
     await page.fill('input[name="username"]', username);
@@ -198,6 +331,10 @@ try {
         if (outcome !== null) {
             break;
         }
+    }
+
+    if (codeWaitMs > 0 && (outcome?.status === 'checkpoint_required' || outcome?.status === 'two_factor_required')) {
+        outcome = await waitForHuman(page, context);
     }
 
     if (outcome?.status === 'ok') {

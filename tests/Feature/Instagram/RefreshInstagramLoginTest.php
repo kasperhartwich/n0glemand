@@ -97,5 +97,12 @@ it('has its own single-process Horizon supervisor and leaves the default one alo
 
 it('keeps the login lock longer than the longest login', function () {
     expect(config('services.instagram.login_lock_ttl'))
-        ->toBeGreaterThan(config('services.instagram.browser_timeout') + 10);
+        ->toBeGreaterThan(config('services.instagram.browser_timeout') + config('services.instagram.code_wait') + 10);
+});
+
+it('keeps the uniqueness lock longer than the job may run, so a waiting login is never queued twice', function () {
+    $job = new RefreshInstagramLogin;
+
+    expect($job->uniqueFor)->toBeGreaterThan($job->timeout)
+        ->and($job->tries)->toBe(1);
 });
