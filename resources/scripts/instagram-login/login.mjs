@@ -135,6 +135,8 @@ async function classify(page, context) {
     return null;
 }
 
+const VERDICT_RESERVE = 35000;
+
 const CODE_INPUT = 'input[name="security_code"], input[name="verificationCode"], input[autocomplete="one-time-code"], input[name="email_confirmation_code"]';
 
 async function pageText(page) {
@@ -182,7 +184,10 @@ async function press(page, pattern) {
  * on by itself (approval in the Instagram app). Returns a final outcome.
  */
 async function waitForHuman(page, context) {
-    const waitDeadline = Date.now() + codeWaitMs;
+    // One absolute budget: the login deadline plus the code wait, so the whole run stays inside the
+    // PHP process timeout (browser timeout plus code wait). A code is only taken while VERDICT_RESERVE
+    // is left, which covers typing it (10 s) and Instagram's verdict (15 s).
+    const waitDeadline = Math.min(Date.now() + codeWaitMs, deadline + codeWaitMs);
     dropCodeFile();
 
     let kind = null;
@@ -218,18 +223,22 @@ async function waitForHuman(page, context) {
         await sleep(1000);
 
         if (kind === 'code') {
+            if (waitDeadline - Date.now() < VERDICT_RESERVE) {
+                break;
+            }
+
             const code = takeCode();
 
             if (code === null) {
                 continue;
             }
 
-            await page.fill(CODE_INPUT, code);
+            await page.fill(CODE_INPUT, code, { timeout: 10000 });
             await page.keyboard.press('Enter');
             await sleep(500);
 
             // Wait for Instagram's verdict: a session, or the code input still there with an error.
-            const verdictDeadline = Math.min(Date.now() + 15000, waitDeadline);
+            const verdictDeadline = Date.now() + 15000;
 
             while (Date.now() < verdictDeadline) {
                 await sleep(500);
