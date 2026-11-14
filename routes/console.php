@@ -14,11 +14,12 @@ Schedule::command('slack:join-all-public --sleep=1')
     ->dailyAt('03:00')
     ->withoutOverlapping(120)
     ->runInBackground();
-// Queues a login while the cookies are over 3 days old, so a reel rarely waits on one and a code
-// request reaches the admins now, not in the middle of a download.
+// Queues a login while the cookies are over 3 days old, so a reel rarely waits on one. It runs
+// after the 09:00 check, when the admins are awake to answer the code request (the login waits
+// 10 minutes for it).
 Schedule::command('instagram:refresh --if-older-than=72')
-    ->dailyAt('03:30')
-    ->timezone('UTC')
+    ->dailyAt('09:30')
+    ->timezone('Europe/Copenhagen')
     ->onOneServer()
     ->withoutOverlapping(10);
 Schedule::command('instagram:check --notify')

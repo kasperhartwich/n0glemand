@@ -30,12 +30,12 @@ it('schedules the instagram check daily at 09:00 Copenhagen time on one server',
         ->and($event->command)->toContain('--notify');
 });
 
-it('schedules the instagram refresh daily at 03:30 UTC on one server without overlap', function () {
+it('schedules the instagram refresh daily at 09:30 Copenhagen time, when the admins can answer a code request', function () {
     $event = scheduledEvent('instagram:refresh');
 
     expect($event)->not->toBeNull()
-        ->and($event->expression)->toBe('30 3 * * *')
-        ->and($event->timezone)->toBe('UTC')
+        ->and($event->expression)->toBe('30 9 * * *')
+        ->and($event->timezone)->toBe('Europe/Copenhagen')
         ->and($event->onOneServer)->toBeTrue()
         ->and($event->withoutOverlapping)->toBeTrue()
         ->and($event->command)->toContain('--if-older-than=72');

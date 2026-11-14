@@ -279,3 +279,23 @@ describe('instagram:refresh --if-older-than', function () {
         Queue::assertNothingPushed();
     });
 });
+
+it('keeps the script inside the process timeout: one absolute wait budget and a reserve for the last code', function () {
+    $script = file_get_contents(base_path('resources/scripts/instagram-login/login.mjs'));
+
+    // The script ends by login deadline + code wait + nothing; the process timeout is browser timeout + code wait.
+    expect($script)->toContain('Math.min(Date.now() + codeWaitMs, deadline + codeWaitMs)')
+        ->and($script)->toContain('waitDeadline - Date.now() < VERDICT_RESERVE');
+
+    preg_match('/VERDICT_RESERVE = (\d+);/', $script, $reserve);
+    $typing = 10000;
+    $verdict = 15000;
+
+    expect((int) $reserve[1])->toBeGreaterThanOrEqual($typing + $verdict);
+
+    // The login deadline (browser timeout minus 8 s) leaves the PHP timeout (browser timeout) 8 s over.
+    $loginDeadline = config('services.instagram.browser_timeout') - 8;
+    $scriptEnds = $loginDeadline + config('services.instagram.code_wait');
+
+    expect($scriptEnds)->toBeLessThan(config('services.instagram.browser_timeout') + config('services.instagram.code_wait'));
+});
